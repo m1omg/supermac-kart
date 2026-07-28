@@ -1,0 +1,12 @@
+# texture generation scratch (regenerate with scripts/seamless.py)
+_gen/
+*.tmp
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# editors
+.vscode/
+.idea/
+*.swp

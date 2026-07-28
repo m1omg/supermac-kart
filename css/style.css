@@ -1,0 +1,538 @@
+/* ============================================================
+   SuperMac Kart — presentation layer
+   Look: classic Platinum + Aqua, with arcade HUD typography.
+   ============================================================ */
+
+:root {
+  --aqua:      #3f8ae0;
+  --aqua-lite: #7fc4ff;
+  --amber:     #ffb020;
+  --platinum:  #dcdcdc;
+  --ink:       #10131a;
+  --panel:     rgba(12, 16, 24, .72);
+  --panel-br:  rgba(255, 255, 255, .16);
+  --hud-font:  "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #05070c;
+  overflow: hidden;
+  font-family: var(--hud-font);
+  color: #fff;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+/* The stage keeps a 16:9 letterbox centred in the viewport. */
+#stage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+/* WebGL canvas fills the viewport; the renderer owns its pixel size. */
+#screen {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #0a0e16;
+}
+
+.hidden { display: none !important; }
+
+/* ============================================================
+   HUD
+   ============================================================ */
+
+#hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, .65);
+}
+
+#hud .label {
+  display: block;
+  font-size: clamp(9px, 1.1vw, 15px);
+  letter-spacing: .34em;
+  opacity: .82;
+  font-weight: 700;
+}
+
+/* --- lap counter (top left) --- */
+#lapBox {
+  position: absolute;
+  top: 2.2%;
+  left: 2.4%;
+  line-height: .92;
+}
+#lapNow {
+  font-size: clamp(34px, 5.4vw, 78px);
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: -.02em;
+}
+#lapTotal {
+  font-size: clamp(18px, 2.6vw, 38px);
+  font-weight: 700;
+  font-style: italic;
+  opacity: .78;
+}
+
+/* --- clock (top right) --- */
+#timeBox {
+  position: absolute;
+  top: 2.2%;
+  right: 2.4%;
+  text-align: right;
+  line-height: .95;
+}
+#timeMain {
+  font-size: clamp(28px, 4.2vw, 60px);
+  font-weight: 800;
+  font-style: italic;
+}
+#timeFrac {
+  font-size: clamp(18px, 2.6vw, 38px);
+  font-weight: 800;
+  font-style: italic;
+  color: var(--amber);
+}
+
+/* --- big position (left) --- */
+#posBox {
+  position: absolute;
+  left: 2.6%;
+  top: 47%;
+  line-height: .85;
+}
+#posNum {
+  font-size: clamp(46px, 8vw, 116px);
+  font-weight: 800;
+  font-style: italic;
+}
+#posOrd {
+  font-size: clamp(18px, 2.8vw, 40px);
+  font-weight: 800;
+  font-style: italic;
+  opacity: .9;
+}
+#gapBox {
+  margin-top: .5em;
+  display: inline-flex;
+  align-items: center;
+  gap: .7em;
+  padding: .38em .95em;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--panel-br);
+  backdrop-filter: blur(6px);
+  font-size: clamp(11px, 1.5vw, 20px);
+  font-weight: 700;
+}
+.gapLabel { color: var(--amber); letter-spacing: .18em; }
+
+/* --- standings (right) --- */
+#standings {
+  position: absolute;
+  right: 2.2%;
+  top: 33%;
+  display: flex;
+  flex-direction: column;
+  gap: .18em;
+  font-size: clamp(10px, 1.35vw, 19px);
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+.stRow {
+  display: flex;
+  align-items: center;
+  gap: .6em;
+  padding: .26em .8em .26em .55em;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.stRow.me {
+  background: var(--panel);
+  border-color: rgba(255, 176, 32, .55);
+}
+.stPos { width: 2.4em; text-align: right; opacity: .85; }
+.stPos i { font-size: .62em; font-style: normal; opacity: .8; }
+.stDot {
+  width: .62em;
+  height: .62em;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+  background: currentColor;
+}
+.stName { min-width: 7.2em; }
+
+/* --- nitro meter --- */
+#nitroBox {
+  position: absolute;
+  left: 2.6%;
+  bottom: 6%;
+  width: clamp(150px, 17vw, 260px);
+}
+#nitroBar {
+  height: clamp(10px, 1.5vw, 20px);
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--panel-br);
+  overflow: hidden;
+}
+#nitroFill {
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #0af, #6f6, #ff0, #f60);
+  transition: filter .12s linear;
+}
+#nitroFill.low { filter: saturate(.25) brightness(.7); }
+#nitroFill.burn { animation: burn .28s linear infinite; }
+@keyframes burn {
+  0%, 100% { filter: brightness(1.35); }
+  50%      { filter: brightness(.75); }
+}
+#nitroLabel {
+  margin-top: .42em;
+  font-size: clamp(9px, 1.05vw, 14px);
+  letter-spacing: .28em;
+  font-weight: 700;
+  opacity: .85;
+}
+#nitroLabel .key {
+  padding: .1em .5em;
+  border: 1px solid var(--panel-br);
+  border-radius: 5px;
+  background: var(--panel);
+  letter-spacing: .1em;
+}
+
+/* --- minimap + speedo pods --- */
+#mapBox, #speedoBox {
+  position: absolute;
+  bottom: 3.2%;
+  padding: .55em;
+  border-radius: 18px;
+  background: var(--panel);
+  border: 1px solid var(--panel-br);
+  backdrop-filter: blur(8px);
+}
+#mapBox { left: 50%; transform: translateX(-50%); }
+#speedoBox { right: 2.4%; }
+#mapBox canvas, #speedoBox canvas {
+  display: block;
+  width: clamp(130px, 15vw, 230px);
+  height: auto;
+}
+
+/* --- centre messages (countdown / lap flash) --- */
+#centerMsg {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: clamp(50px, 12vw, 170px);
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: -.02em;
+  opacity: 0;
+}
+#centerMsg.show { animation: pop .9s ease-out; }
+@keyframes pop {
+  0%   { opacity: 0; transform: scale(1.9); }
+  18%  { opacity: 1; transform: scale(1); }
+  70%  { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(.92); }
+}
+
+/* Sits over sky that ranges from near-white to near-black, so it carries
+   its own backing rather than relying on a text shadow. */
+#popup {
+  position: absolute;
+  left: 50%;
+  top: 20%;
+  transform: translateX(-50%);
+  padding: .35em 1em;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 176, 32, .5);
+  backdrop-filter: blur(6px);
+  white-space: nowrap;
+  font-size: clamp(13px, 1.8vw, 26px);
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: .06em;
+  color: var(--amber);
+  opacity: 0;
+}
+#popup.show { animation: rise 1s ease-out; }
+@keyframes rise {
+  0%   { opacity: 0; transform: translate(-50%, 14px); }
+  22%  { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -22px); }
+}
+
+/* ============================================================
+   Touch controls
+   ============================================================ */
+#touch {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 1.2vh 2vw 2.4vh;
+  display: flex;
+  gap: 2vw;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.tbtn {
+  pointer-events: auto;
+  flex: 0 0 auto;
+  min-width: 15vw;
+  padding: 2.4vh 0;
+  text-align: center;
+  font-weight: 800;
+  font-size: clamp(14px, 2.4vw, 24px);
+  border-radius: 16px;
+  background: rgba(10, 14, 22, .6);
+  border: 1px solid var(--panel-br);
+  backdrop-filter: blur(6px);
+}
+.tbtn:active { background: rgba(63, 138, 224, .55); }
+.tbtn.wide { min-width: 26vw; }
+
+/* ============================================================
+   Menus
+   ============================================================ */
+
+#menu {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(120% 90% at 50% -10%, rgba(63, 138, 224, .40), transparent 60%),
+    repeating-linear-gradient(180deg, rgba(255, 255, 255, .035) 0 2px, transparent 2px 4px),
+    linear-gradient(180deg, #0b1220 0%, #05070c 100%);
+}
+#menu.hidden { display: none; }
+
+.screen {
+  width: min(940px, 92vw);
+  max-height: 96vh;
+  overflow-y: auto;
+  text-align: center;
+  padding: 2vh 1vw;
+}
+
+.logo { line-height: .82; margin-bottom: 2.2vh; }
+.logo-super {
+  font-size: clamp(22px, 4vw, 46px);
+  font-weight: 800;
+  letter-spacing: .62em;
+  text-indent: .62em;
+  color: var(--platinum);
+  opacity: .9;
+}
+.logo-mac {
+  font-size: clamp(56px, 11vw, 132px);
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: -.03em;
+  background: linear-gradient(180deg, #ffd34d 0%, #ff7a3d 34%, #e8447a 58%, #7b5bff 78%, #3fb8f5 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 6px 26px rgba(255, 122, 61, .35));
+}
+.logo-kart {
+  display: block;
+  font-size: .34em;
+  letter-spacing: .5em;
+  text-indent: .5em;
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+  filter: none;
+  margin-top: .3em;
+}
+.tagline {
+  margin: 0 0 3.4vh;
+  opacity: .72;
+  font-size: clamp(12px, 1.5vw, 18px);
+  letter-spacing: .06em;
+}
+
+h2 {
+  margin: 0 0 1.8vh;
+  font-size: clamp(18px, 2.6vw, 32px);
+  font-weight: 800;
+  letter-spacing: .3em;
+  text-indent: .3em;
+  color: var(--platinum);
+}
+
+button {
+  font-family: inherit;
+  font-weight: 800;
+  letter-spacing: .16em;
+  font-size: clamp(12px, 1.5vw, 18px);
+  color: #fff;
+  padding: .95em 2.1em;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .28);
+  background: linear-gradient(180deg, var(--aqua-lite), var(--aqua) 52%, #2b6ec2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .55), 0 8px 24px rgba(0, 0, 0, .45);
+  cursor: pointer;
+  transition: transform .1s ease, filter .12s ease;
+}
+button:hover { filter: brightness(1.12); }
+button:active { transform: translateY(2px); }
+button.ghost {
+  background: rgba(255, 255, 255, .06);
+  box-shadow: none;
+  border-color: rgba(255, 255, 255, .22);
+}
+button.big { font-size: clamp(14px, 2vw, 24px); padding: 1.05em 2.8em; }
+
+.row { display: flex; gap: 1.2em; justify-content: center; margin-top: 2vh; flex-wrap: wrap; }
+.row.col { flex-direction: column; align-items: center; }
+.hint {
+  margin-top: 3.2vh;
+  opacity: .55;
+  font-size: clamp(10px, 1.15vw, 14px);
+  letter-spacing: .1em;
+}
+
+/* --- selection grids --- */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: .8em;
+}
+.grid.tracks { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 700px) {
+  .grid { grid-template-columns: repeat(2, 1fr); }
+  .grid.tracks { grid-template-columns: 1fr; }
+}
+
+.card {
+  cursor: pointer;
+  padding: .6em .5em .7em;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .05);
+  border: 2px solid rgba(255, 255, 255, .12);
+  transition: transform .12s ease, border-color .12s ease, background .12s ease;
+}
+.card:hover { transform: translateY(-3px); background: rgba(255, 255, 255, .09); }
+.card.sel {
+  border-color: var(--amber);
+  background: rgba(255, 176, 32, .14);
+  box-shadow: 0 10px 30px rgba(255, 176, 32, .18);
+}
+.card canvas { display: block; width: 100%; height: auto; }
+/* Cap mascot portraits so both rows plus the stat block fit a 720p screen. */
+#charGrid .card canvas {
+  height: clamp(72px, 14vh, 140px);
+  object-fit: contain;
+}
+/* Track previews are wide; cap their height so all four circuits fit on
+   a 720p screen without the picker turning into a scroller. */
+.grid.tracks .card canvas {
+  height: clamp(84px, 15vh, 150px);
+  border-radius: 10px;
+}
+.grid.tracks .cdesc {
+  min-height: 2.7em;
+}
+.card .cname {
+  margin-top: .55em;
+  font-weight: 800;
+  letter-spacing: .16em;
+  font-size: clamp(10px, 1.2vw, 15px);
+}
+.card .cdesc {
+  margin-top: .3em;
+  opacity: .62;
+  font-size: clamp(9px, 1.05vw, 13px);
+  letter-spacing: .04em;
+  line-height: 1.35;
+}
+.card .cflag {
+  display: inline-block;
+  margin-top: .5em;
+  padding: .2em .7em;
+  border-radius: 999px;
+  font-size: clamp(9px, 1vw, 12px);
+  letter-spacing: .16em;
+  font-weight: 800;
+  background: rgba(255, 255, 255, .1);
+}
+
+.stats {
+  margin: 1.6vh auto 0;
+  width: min(560px, 92vw);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .4em 1.2em;
+}
+/* the blurb spans both stat columns */
+.stats > .cdesc { grid-column: 1 / -1; }
+.statRow {
+  display: grid;
+  grid-template-columns: 5.2em 1fr;
+  align-items: center;
+  gap: .6em;
+  font-size: clamp(9px, 1.05vw, 13px);
+  letter-spacing: .12em;
+  font-weight: 700;
+  opacity: .9;
+}
+.meter {
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .1);
+  overflow: hidden;
+}
+.meter span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--aqua-lite), var(--amber));
+}
+
+/* --- results board --- */
+.board {
+  width: min(600px, 92vw);
+  margin: 0 auto;
+  display: grid;
+  gap: .4em;
+}
+.bRow {
+  display: grid;
+  grid-template-columns: 3.2em 1.6em 1fr auto;
+  align-items: center;
+  gap: .9em;
+  padding: .7em 1.1em;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .05);
+  font-weight: 700;
+  letter-spacing: .1em;
+  font-size: clamp(11px, 1.4vw, 17px);
+  text-align: left;
+}
+.bRow.me { background: rgba(255, 176, 32, .16); border: 1px solid rgba(255, 176, 32, .45); }
+.bRow .bPos { font-weight: 800; font-style: italic; opacity: .9; }
+.bRow .bTime { font-variant-numeric: tabular-nums; opacity: .85; }
+#resultTitle { color: var(--amber); }
