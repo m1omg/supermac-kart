@@ -1,10 +1,12 @@
 # SuperMac Kart
 
+**▶ [Play it here](https://m1omg.github.io/supermac-kart/)**
+
 A browser kart racer in the SuperTuxKart mould, but the grid is classic
 Mac mascots and hardware instead of the usual Linux/BSD crowd. Built on
 three.js, real 3D, no build step.
 
-## Running it
+## Running it locally
 
 Open `index.html` in any modern browser, or serve the folder:
 
