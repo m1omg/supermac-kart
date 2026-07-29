@@ -63,7 +63,12 @@ var Game = (function () {
        scene running badly.  adaptQuality() tunes this at runtime. */
     renderer.setPixelRatio(basePixelRatio());
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    Art.setAnisotropy(Math.min(8, renderer.capabilities.getMaxAnisotropy()));
+    /* 4x is the sweet spot: on a road at speed it is indistinguishable
+       from 8x or 16x and costs roughly half as much per fragment. */
+    var maxAniso = renderer.capabilities.getMaxAnisotropy();
+    while (QUALITY.anisoMax > 0 && ANISO_STEPS[QUALITY.anisoMax] > maxAniso) QUALITY.anisoMax--;
+    QUALITY.aniso = QUALITY.anisoMax;
+    Art.setAnisotropy(ANISO_STEPS[QUALITY.aniso]);
 
     camera = new THREE.PerspectiveCamera(64, 16 / 9, 0.5, 14000);
 
@@ -107,11 +112,23 @@ var Game = (function () {
      stays sharp either way.
      ========================================================== */
 
+  /* Two dials, spent in order of what they cost to look at.  Grazing-
+     angle texture filtering on the road, the verges and the ground is
+     the most expensive thing in the frame — measured at ~40% of all
+     fragment time at 8x — and dropping it to 4x or 2x is very nearly
+     invisible in motion.  Render scale is the opposite: cheap to give
+     up numerically, immediately obvious on screen.  So anisotropy is
+     always surrendered first and restored last, which keeps the picture
+     sharp for as long as the machine can hold the frame rate at all. */
+  var ANISO_STEPS = [1, 2, 4, 8];
+
   var QUALITY = {
     target: 1 / 60,
     scale: 1,
     min: 0.6,
     max: 1,
+    aniso: 2,               /* index into ANISO_STEPS; set at boot */
+    anisoMax: 2,
     samples: [],
     cooldown: 0
   };
@@ -134,17 +151,19 @@ var Game = (function () {
 
     if (q.cooldown > 0) { q.cooldown--; return; }
 
-    var before = q.scale;
-    if (median > q.target * 1.35 && q.scale > q.min) {
-      q.scale = Math.max(q.min, q.scale - 0.1);
-    } else if (median < q.target * 0.85 && q.scale < q.max) {
-      q.scale = Math.min(q.max, q.scale + 0.05);
+    var scale = q.scale, aniso = q.aniso;
+
+    if (median > q.target * 1.35) {
+      if (q.aniso > 0) q.aniso--;                                  /* filtering first */
+      else if (q.scale > q.min) q.scale = Math.max(q.min, q.scale - 0.1);
+    } else if (median < q.target * 0.85) {
+      if (q.scale < q.max) q.scale = Math.min(q.max, q.scale + 0.05);
+      else if (q.aniso < q.anisoMax) q.aniso++;                    /* filtering last */
     }
 
-    if (q.scale !== before) {
-      renderer.setPixelRatio(basePixelRatio());
-      q.cooldown = 2;
-    }
+    if (q.scale !== scale) renderer.setPixelRatio(basePixelRatio());
+    if (q.aniso !== aniso) Art.setAnisotropy(ANISO_STEPS[q.aniso]);
+    if (q.scale !== scale || q.aniso !== aniso) q.cooldown = 2;
   }
 
   /* ==========================================================
@@ -332,6 +351,7 @@ var Game = (function () {
 
     track = Tracks.get(chosenTrack);
     world = World.build(track, {});
+    mapLayer = null;          /* new circuit, new minimap outline */
 
     /* grid: player starts at the back, as tradition demands */
     var roster = Art.MASCOTS.slice();
@@ -585,9 +605,18 @@ var Game = (function () {
   function handleRaceEvents(dt) {
     /* player feedback */
     if (player.justPicked) {
-      player.justPicked = false;
+      popup('NITRO +' + Math.round(player.justPicked));
+      player.justPicked = 0;
+      player.nitroGained = 0;      /* the chip already announced itself */
       Sound.pickup();
-      popup('NITRO +34');
+    }
+    /* Contact nitro dribbles in over several ticks, so it is pooled and
+       announced once the total is worth reading rather than every tick. */
+    if (player.nitroGained > 4) {
+      popup('NITRO +' + Math.round(player.nitroGained));
+      player.nitroGained = 0;
+    } else if (player.nitroGained > 0) {
+      player.nitroGained = Math.max(0, player.nitroGained - dt * 3);
     }
     if (player.justBoosted) {
       player.justBoosted = false;
@@ -726,14 +755,17 @@ var Game = (function () {
 
   function buildStandingRows() {
     el.standings.innerHTML = '';
-    standingRows = karts.map(function () {
+    standingRows = karts.map(function (_, i) {
+      var ord = Util.ordinal(i + 1);
       var row = document.createElement('div');
       row.className = 'stRow';
-      row.innerHTML = '<span class="stPos"></span><span class="stDot"></span><span class="stName"></span>';
+      row.innerHTML = '<span class="stPos">' + ord.replace(/[a-z]+$/, '') +
+                      '<i>' + ord.replace(/^\d+/, '') + '</i></span>' +
+                      '<span class="stDot"></span><span class="stName"></span>';
       el.standings.appendChild(row);
       return {
         node: row,
-        pos: row.querySelector('.stPos'),
+        kart: null,
         dot: row.querySelector('.stDot'),
         name: row.querySelector('.stName')
       };
@@ -781,30 +813,40 @@ var Game = (function () {
       el.gapVal.textContent = '--';
     }
 
-    /* standings list */
+    /* Standings list.  A row's position label never changes — it is the
+       kart in the row that does — and writing innerHTML into eight rows
+       every frame reparses HTML sixty times a second for nothing.  Only
+       the rows whose occupant actually changed are touched. */
     for (var i = 0; i < order.length; i++) {
       var k = order[i], row = standingRows[i];
-      if (!row) continue;
-      var ord = Util.ordinal(i + 1);
-      var num = ord.replace(/[a-z]+$/, ''), suf = ord.replace(/^\d+/, '');
-      row.pos.innerHTML = num + '<i>' + suf + '</i>';
+      if (!row || row.kart === k) continue;
+      row.kart = k;
       row.dot.style.color = k.color;
       row.name.textContent = k.name;
       row.node.classList.toggle('me', k.isPlayer);
     }
 
-    /* nitro */
+    /* nitro.  "low" now means below the charge needed to light it at
+       all, which is the number that actually matters to the driver. */
     el.nitroFill.style.width = player.nitro.toFixed(1) + '%';
-    el.nitroFill.classList.toggle('low', player.nitro < 12);
-    el.nitroFill.classList.toggle('burn', player.burning);
+    el.nitroFill.classList.toggle('low', player.nitro < player.nitroMin);
+    el.nitroFill.classList.toggle('burn', player.nitroLit);
 
     drawMinimap();
     drawSpeedo();
   }
 
-  function drawMinimap() {
-    var ctx = el.mapCtx, W = el.minimap.width, H = el.minimap.height;
-    ctx.clearRect(0, 0, W, H);
+  /* The circuit outline and the start marker never move, but re-stroking
+     several hundred path points twice a frame is not free.  They are
+     painted once per race into an offscreen layer and blitted after
+     that; only the eight dots are actually drawn per frame. */
+  var mapLayer = null;
+
+  function buildMapLayer() {
+    var W = el.minimap.width, H = el.minimap.height;
+    mapLayer = document.createElement('canvas');
+    mapLayer.width = W; mapLayer.height = H;
+    var ctx = mapLayer.getContext('2d');
 
     var pad = 16, w = W - pad * 2, h = H - pad * 2;
     var pts = track.minimap;
@@ -831,6 +873,16 @@ var Game = (function () {
     ctx.beginPath();
     ctx.arc(pad + s0[0] * w, pad + s0[1] * h, 5, 0, Math.PI * 2);
     ctx.stroke();
+  }
+
+  function drawMinimap() {
+    var ctx = el.mapCtx, W = el.minimap.width, H = el.minimap.height;
+    ctx.clearRect(0, 0, W, H);
+
+    if (!mapLayer) buildMapLayer();
+    ctx.drawImage(mapLayer, 0, 0);
+
+    var pad = 16, w = W - pad * 2, h = H - pad * 2;
 
     /* karts */
     for (var k = 0; k < karts.length; k++) {
@@ -961,7 +1013,22 @@ var Game = (function () {
     Sound.stopEngine();
   }
 
-  return { boot: boot };
+  /* `stats` is a read-only window onto what the renderer actually drew
+     last frame — draw calls and triangles after culling.  Scene totals
+     alone say nothing about cost once sector culling is in play. */
+  return {
+    boot: boot,
+    scene: function () { return world && world.scene; },
+    stats: function () {
+      if (!renderer) return null;
+      var r = renderer.info.render;
+      return {
+        calls: r.calls, triangles: r.triangles,
+        scale: QUALITY.scale, aniso: Art.anisotropy(),
+        width: canvas.width, height: canvas.height
+      };
+    }
+  };
 })();
 
 window.addEventListener('load', Game.boot);

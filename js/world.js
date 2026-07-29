@@ -23,6 +23,7 @@ var World = (function () {
 
     var pos = new Float32Array(rings * 2 * 3);
     var uv  = new Float32Array(rings * 2 * 2);
+    var col = o.tint ? new Float32Array(rings * 2 * 3) : null;
     var idx = [];
 
     var rnd = Util.rng(o.seed || 1);
@@ -79,6 +80,21 @@ var World = (function () {
           ? (off - lo) * o.uPerUnit
           : (flipU ? (1 - e) : e);
         uv[t + 1] = v;
+
+        /* A tiled map on its own goes flat at distance: once the mip
+           chain has averaged the grain away there is nothing left but
+           one colour.  This puts the large scale back — a slow swing of
+           light and dark, tens of metres across, in vertex colour.  It
+           costs no texture memory and no fill, and it also hides the
+           repeat, because it does not repeat on the same period. */
+        if (col) {
+          var f = i * track.ds + e * 37;
+          var shade = 1 + o.tint * (
+            Math.sin(f * 0.085 + (o.seed || 1)) * 0.36 +
+            Math.sin(f * 0.031 + (o.seed || 1) * 2.7) * 0.42 +
+            Math.sin(f * 0.013 + (o.seed || 1) * 5.1) * 0.22);
+          col[k] = col[k + 1] = col[k + 2] = shade;
+        }
       }
 
       if (i < rings - 1) {
@@ -91,6 +107,7 @@ var World = (function () {
     var geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    if (col) geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setIndex(idx);
     geo.computeVertexNormals();
     if (closed) geo.userData.closed = true;
@@ -110,6 +127,15 @@ var World = (function () {
      Backdrop: sky dome + jagged mountain curtains
      ========================================================== */
 
+  /* Render order for the backdrop.  These used to be drawn first, which
+     meant every sky pixel was textured and then thrown away again under
+     the ground, the terrain and the road — a full screen of wasted fill
+     on every frame.  Drawn *last* in the opaque pass instead, with the
+     depth test still on but no depth writes, only the pixels that
+     survive to the horizon are ever shaded.  Same image, a fraction of
+     the fragments. */
+  var ORDER = { ground: 700, mountains: 800, sky: 900 };
+
   function buildSky(theme) {
     var tex = Art.texture(Art.sky(theme), 1, 1);
     /* the texture is painted to wrap, so let it repeat horizontally —
@@ -121,7 +147,7 @@ var World = (function () {
       map: tex, side: THREE.BackSide, fog: false, depthWrite: false
     });
     var mesh = new THREE.Mesh(geo, mat);
-    mesh.renderOrder = -100;
+    mesh.renderOrder = ORDER.sky;
     return mesh;
   }
 
@@ -168,13 +194,19 @@ var World = (function () {
       geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
       geo.setIndex(idx);
 
-      /* rock across the ridges, tinted by the existing vertex colours
-         so each layer keeps its aerial-perspective shading */
+      /* Rock across the ridges, tinted by the existing vertex colours so
+         each layer keeps its aerial-perspective shading.  The repeat is
+         worked out from the actual size of the curtain — a fixed count
+         stretched one tile over 500 units of cliff, which is exactly how
+         a mapped surface ends up looking like flat paint. */
+      var TILE = 150;
       var mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-        map: surf('rock', L.color, 26, 2),
+        map: surf('rock', L.color,
+                  Math.round(2 * Math.PI * L.r / TILE),
+                  Math.max(1, Math.round((L.h + 120) / TILE))),
         vertexColors: true, side: THREE.DoubleSide, fog: false, depthWrite: true
       }));
-      mesh.renderOrder = -90;
+      mesh.renderOrder = ORDER.mountains;
       group.add(mesh);
     });
 
@@ -188,16 +220,21 @@ var World = (function () {
   function propLibrary(theme) {
     var lib = {};
 
-    var barkMat  = new THREE.MeshLambertMaterial({ color: 0x6b5233 });
-    var leafMat  = new THREE.MeshLambertMaterial({ color: theme.night ? 0x1f4d3a : 0x2f7d3a });
-    var leafMat2 = new THREE.MeshLambertMaterial({ color: theme.night ? 0x18402f : 0x3f9b4a });
+    /* Every prop surface gets a map.  Where a part needs a colour the
+       texture doesn't have — a night-tinted frond, an orange cone — the
+       map is multiplied by `color` rather than replaced by it, so the
+       grain survives the tint instead of being painted over. */
+    var barkMat  = new THREE.MeshLambertMaterial({ map: surf('bark', '#6b5233', 2, 3) });
+    var leafMat  = new THREE.MeshLambertMaterial({
+      map: surf('foliage', '#2f7d3a', 3, 3), color: theme.night ? 0x5f7f72 : 0xffffff });
+    var leafMat2 = new THREE.MeshLambertMaterial({
+      map: surf('foliage', '#3f9b4a', 2, 2), color: theme.night ? 0x4f6f64 : 0xc9e6a8 });
     var rockMat  = new THREE.MeshLambertMaterial({
-      map: Art.loadSurface('rock', Art.paint(8, 8, function (c) {
-        c.fillStyle = theme.night ? '#3a3d4a' : '#8c8477'; c.fillRect(0, 0, 8, 8);
-      }), 1, 1), flatShading: true });
-    var plasticW = new THREE.MeshLambertMaterial({ color: 0xf2f2ec });
-    var metalMat = new THREE.MeshLambertMaterial({ color: 0x9aa0a8 });
-    var darkMat  = new THREE.MeshLambertMaterial({ color: 0x24262c });
+      map: surf('rock', theme.night ? '#3a3d4a' : '#8c8477', 1, 1),
+      color: theme.night ? 0x8890a4 : 0xffffff, flatShading: true });
+    var plasticW = new THREE.MeshLambertMaterial({ map: surf('beige_plastic', '#f2f2ec', 2, 2), color: 0xfbfbf6 });
+    var metalMat = new THREE.MeshLambertMaterial({ map: surf('dark_metal', '#9aa0a8', 2, 2), color: 0xb8bec8 });
+    var darkMat  = new THREE.MeshLambertMaterial({ map: surf('dark_metal', '#24262c', 2, 2), color: 0x6a6f7a });
 
     /* palm: bare trunk, umbrella of fronds */
     lib.palm = { parts: [
@@ -221,34 +258,38 @@ var World = (function () {
       { geo: new THREE.IcosahedronGeometry(2.6, 0), mat: rockMat, pos: [0, 1.6, 0], scale: [1.3, 0.9, 1.1] }
     ], radius: 2.6 };
 
+    var conePlastic = new THREE.MeshLambertMaterial({
+      map: surf('beige_plastic', '#e8551f', 1, 1), color: 0xff5a1c });
     lib.cone = { parts: [
-      { geo: new THREE.ConeGeometry(0.75, 2.1, 10), mat: new THREE.MeshLambertMaterial({ color: 0xe8551f }), pos: [0, 1.05, 0] },
+      { geo: new THREE.ConeGeometry(0.75, 2.1, 10), mat: conePlastic, pos: [0, 1.05, 0] },
       { geo: new THREE.CylinderGeometry(0.55, 0.62, 0.4, 10), mat: plasticW, pos: [0, 1.15, 0] },
-      { geo: new THREE.BoxGeometry(1.7, 0.16, 1.7), mat: new THREE.MeshLambertMaterial({ color: 0xc2410c }), pos: [0, 0.08, 0] }
+      { geo: new THREE.BoxGeometry(1.7, 0.16, 1.7), mat: new THREE.MeshLambertMaterial({
+          map: surf('dark_metal', '#c2410c', 1, 1), color: 0x8a4a26 }), pos: [0, 0.08, 0] }
     ], radius: 0.9 };
 
     /* a CRT display on a stand, screen lit */
     var screenTex = Art.texture(Art.screenGlow('#5fc8ff'), 1, 1);
+    var caseMat = new THREE.MeshLambertMaterial({ map: surf('beige_plastic', '#d7d3c8', 1, 1) });
     lib.crt = { parts: [
-      { geo: new THREE.BoxGeometry(4.4, 3.8, 3.4), mat: new THREE.MeshLambertMaterial({
-          map: Art.loadSurface('beige_plastic', Art.paint(8, 8, function (c) {
-            c.fillStyle = '#d7d3c8'; c.fillRect(0, 0, 8, 8);
-          }), 1, 1) }), pos: [0, 4.6, 0] },
+      { geo: new THREE.BoxGeometry(4.4, 3.8, 3.4), mat: caseMat, pos: [0, 4.6, 0] },
       { geo: new THREE.BoxGeometry(1.2, 2.8, 1.2), mat: metalMat, pos: [0, 1.4, 0] },
       { geo: new THREE.BoxGeometry(3.4, 2.6, 0.2), mat: new THREE.MeshBasicMaterial({ map: screenTex }), pos: [0, 4.7, 1.75] }
     ], radius: 2.4 };
 
     lib.floppy = { parts: [
-      { geo: new THREE.BoxGeometry(5, 5, 0.6), mat: new THREE.MeshLambertMaterial({ color: 0x2f3a4a }), pos: [0, 3.4, 0] },
-      { geo: new THREE.BoxGeometry(2.2, 1.4, 0.7), mat: new THREE.MeshLambertMaterial({ color: 0xc8ccd4 }), pos: [0, 5.2, 0] },
+      { geo: new THREE.BoxGeometry(5, 5, 0.6), mat: new THREE.MeshLambertMaterial({
+          map: surf('beige_plastic', '#2f3a4a', 1, 1), color: 0x46566e }), pos: [0, 3.4, 0] },
+      { geo: new THREE.BoxGeometry(2.2, 1.4, 0.7), mat: metalMat, pos: [0, 5.2, 0] },
       { geo: new THREE.BoxGeometry(3.6, 2.2, 0.7), mat: plasticW, pos: [0, 2.8, 0] },
       { geo: new THREE.CylinderGeometry(0.25, 0.25, 2, 6), mat: metalMat, pos: [0, 0.9, 0] }
     ], radius: 2.6 };
 
-    /* server rack for the night circuit */
+    /* server rack for the night circuit: a real board on the side panel,
+       which is the one place a player gets close enough to read it */
     var rackTex = Art.texture(Art.screenGlow('#5fe3a0'), 1, 3);
     lib.server = { parts: [
-      { geo: new THREE.BoxGeometry(4, 11, 3), mat: new THREE.MeshLambertMaterial({ color: 0x2a2f38 }), pos: [0, 5.5, 0] },
+      { geo: new THREE.BoxGeometry(4, 11, 3), mat: new THREE.MeshLambertMaterial({
+          map: surf('circuit_board', '#2a2f38', 1, 3), color: 0x8f9aa4 }), pos: [0, 5.5, 0] },
       { geo: new THREE.BoxGeometry(3.2, 9, 0.2), mat: new THREE.MeshBasicMaterial({ map: rackTex }), pos: [0, 5.6, 1.6] }
     ], radius: 2.4 };
 
@@ -300,38 +341,60 @@ var World = (function () {
     scene.add(buildMountains(theme, baseY, track.def.seed));
 
     /* ---------- ground ---------- */
-    var groundTex = Art.loadSurface(theme.night ? 'dark_metal' : 'grass',
-                                    Art.grass(theme), 9000 / 7, 9000 / 7);
+    /* Silicon Ridge is a midnight fab run, so its ground is board, not
+       turf — the same map the server racks are clad in. */
+    var TERRAIN = theme.night ? 'circuit_board' : 'grass';
+    /* The night circuit is lit at a third of daylight, so the board needs
+       a bright tint just to end up reading as dark green rather than as
+       a hole in the world. */
+    var terrainTint = theme.night ? 0xcfe8d6 : 0xffffff;
+    var groundTex = Art.loadSurface(TERRAIN, Art.grass(theme), 9000 / 7, 9000 / 7);
     var ground = new THREE.Mesh(
       new THREE.PlaneGeometry(9000, 9000),
-      new THREE.MeshLambertMaterial({ map: groundTex, color: 0xffffff })
+      new THREE.MeshLambertMaterial({ map: groundTex, color: terrainTint })
     );
     ground.name = 'ground';
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = baseY - 1;
+    /* drawn after the verges and the road, so the two thirds of it that
+       they cover never reach the fragment shader */
+    ground.renderOrder = ORDER.ground;
     scene.add(ground);
 
     /* ---------- verges (grass shoulders that hug the road) ---------- */
     var hw = track.halfWidth, kw = track.kerbWidth;
     var BARRIER = track.runoff;
-    var GRASS_TILE = 7;          /* world units per texture tile */
-    var vergeTex = Art.loadSurface(theme.night ? 'dark_metal' : 'grass',
-                                   Art.grass(theme), 1, 1);
-    var vergeMat = new THREE.MeshLambertMaterial({ map: vergeTex });
+    /* Tiles are sized so the map's own large features stay big enough
+       to read at distance rather than mipping away into a flat wash. */
+    var GRASS_TILE = 15;         /* world units per texture tile */
+    var vergeTex = Art.loadSurface(TERRAIN, Art.grass(theme), 1, 1);
+    var vergeMat = new THREE.MeshLambertMaterial({
+      map: vergeTex, color: terrainTint, vertexColors: true });
+    /* Under a fifth of daylight the board would just be a black hole in
+       the world, so at night the terrain carries its own faint glow —
+       keyed off the same map, which means the copper picks it up and
+       the substrate stays dark.  A fab floor lit by its own hardware. */
+    if (theme.night) {
+      vergeMat.emissive = new THREE.Color(0x2c3a30);
+      vergeMat.emissiveMap = vergeTex;
+      ground.material.emissive = new THREE.Color(0x1e2a22);
+      ground.material.emissiveMap = groundTex;
+    }
 
     /* A gravel trap between the kerb and the grass: it is what you
        actually slide across when you run wide, and it gives the
        barrier line a visible edge to brake against. */
-    var RUNOFF_TILE = 6;
+    var RUNOFF_TILE = 8;
     var runoffMat = new THREE.MeshLambertMaterial({
       map: surf(theme.night ? 'concrete' : 'dirt',
-                theme.night ? '#2a2f3a' : '#c2a878', 1, 1)
+                theme.night ? '#2a2f3a' : '#c2a878', 1, 1),
+      vertexColors: true
     });
 
     [1, -1].forEach(function (side) {
       var runoff = ribbon(track, {
         inner: side * (hw + kw), outer: side * (hw + kw + BARRIER),
-        innerLift: -0.1, outerLift: -0.55,
+        innerLift: -0.1, outerLift: -0.55, tint: 0.07,
         uPerUnit: 1 / RUNOFF_TILE, vPerUnit: 1 / RUNOFF_TILE, seed: 91 + side
       });
       var runoffMesh = new THREE.Mesh(runoff, runoffMat);
@@ -340,7 +403,7 @@ var World = (function () {
 
       var near = ribbon(track, {
         inner: side * (hw + kw + BARRIER), outer: side * (hw + kw + 26),
-        innerLift: -0.55, outerLift: -2.2,
+        innerLift: -0.55, outerLift: -2.2, tint: 0.11,
         outerFlatten: 0.35, baseY: baseY, noise: 1.2,
         uPerUnit: 1 / GRASS_TILE, vPerUnit: 1 / GRASS_TILE, seed: 31 + side
       });
@@ -350,7 +413,7 @@ var World = (function () {
 
       var far = ribbon(track, {
         inner: side * (hw + kw + 26), outer: side * (hw + kw + 120),
-        innerLift: -2.2, outerLift: -6,
+        innerLift: -2.2, outerLift: -6, tint: 0.13,
         innerFlatten: 0.35, outerFlatten: 0.92, baseY: baseY, noise: 6,
         uPerUnit: 1 / GRASS_TILE, vPerUnit: 1 / GRASS_TILE, seed: 57 + side
       });
@@ -386,13 +449,19 @@ var World = (function () {
     /* The road ribbon's v already advances 1 per 16 world units and its u
        spans the full width as 0..1, so the repeat only has to convert
        those into ~9-unit asphalt tiles. */
+    /* Asphalt stays a fine, near-uniform grain and tiles tightly.  It is
+       the one surface where big features are wrong: anything you could
+       pick out — a repair patch, a tar seam — repeats every tile and
+       turns the straight into wallpaper.  The macro variation the road
+       does need comes from the vertex tint below instead, which has no
+       period in common with the map. */
     var ASPHALT_TILE = 9;
     var grainTex = Art.loadSurface('asphalt', grainFallback,
                                    (hw * 2) / ASPHALT_TILE, 16 / ASPHALT_TILE);
-    var roadMat = new THREE.MeshLambertMaterial({ map: grainTex });
+    var roadMat = new THREE.MeshLambertMaterial({ map: grainTex, vertexColors: true });
 
     var roadGeo = ribbon(track, {
-      inner: -hw, outer: hw, innerLift: 0, outerLift: 0,
+      inner: -hw, outer: hw, innerLift: 0, outerLift: 0, tint: 0.05,
       vPerUnit: 1 / 16, seed: 3
     });
     var road = new THREE.Mesh(roadGeo, roadMat);
@@ -406,8 +475,13 @@ var World = (function () {
       inner: -hw, outer: hw, innerLift: 0.012, outerLift: 0.012,
       vPerUnit: 1 / 16, seed: 3
     });
+    /* The markings ribbon is road-sized but mostly empty.  alphaTest
+       throws the blank fragments away before blending instead of
+       compositing a fully transparent pixel over the asphalt, which is
+       most of the layer; the painted edges still blend, so the lines
+       stay as soft as they were. */
     var markings = new THREE.Mesh(markGeo, new THREE.MeshLambertMaterial({
-      map: markTex, transparent: true, depthWrite: false
+      map: markTex, transparent: true, alphaTest: 0.04, depthWrite: false
     }));
     markings.name = 'markings';
     markings.renderOrder = 2;

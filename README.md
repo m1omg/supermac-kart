@@ -82,16 +82,24 @@ nothing about a track changes between loads.
 
 ## Nitro
 
-Three ways to fill and spend the bar:
+**Nitro is a resource you have to go and get.** Nothing refills the bar
+on its own, and you start the race with it empty. There are exactly two
+ways to put anything in it:
 
-- **Hold `Space`** to burn stored nitro for a large speed and FOV boost.
-- **RAM chip pickups** sit in rows around the lap and refill 34%.
-- **Chevron boost strips** on corner exits give an instant kick plus 10%.
-- **Drifting** (`Shift`) charges a mini-turbo; hold the slide long
-  enough and releasing pays out a short boost and some nitro back.
+- **RAM chip pickups**, in staggered rows of three around the lap. One
+  chip is worth 26–42% depending on the mascot's nitro rating.
+- **Contact.** Barge into a rival and whoever drove into the hit
+  harvests nitro from it, in proportion to the closing speed. Trading
+  paint is now a way to refuel.
 
-The bar regenerates on its own, faster for mascots with a high nitro
-rating.
+Spending it: hold `Space`. It drains at 24–31% a second, so a chip buys
+you a little over a second of boost. The bar needs 8% before it will
+light at all, so the last sliver can't be tapped indefinitely.
+
+Chevron **boost strips** and drift **mini-turbos** still exist, but they
+pay out in speed only — they no longer feed the bar. The AI plays by
+exactly the same rules, and will lean off the racing line to pick up a
+chip when it is running dry.
 
 ## Frame-rate independence
 
@@ -113,28 +121,83 @@ through the Codex CLI's `imagegen` tool, then post-processed by
 relative to its own natural pixel-to-pixel variation (so the metric
 reports tiling quality, not how noisy the texture is), healed with an
 offset cross-fade only if it actually shows a seam, then resized to 512px
-and saved as JPEG. The whole set is 564 KB.
+and saved as JPEG.
 
-`asphalt` · `grass` · `dirt` · `beige_plastic` · `dark_metal` · `rock` · `concrete`
+`asphalt` · `grass` · `dirt` · `rock` · `concrete` · `bark` · `foliage` ·
+`rubber` · `beige_plastic` · `dark_metal` · `circuit_board`
 
-Lane markings are *not* baked into the asphalt — they ride on a separate
-ribbon whose UV spans the road width exactly, so the grain can tile
-freely underneath while the markings stay crisp and correctly placed.
+Every surface in the world is mapped: road, kerb runoff, verges, cliffs,
+tree trunks and canopies, cones, monitors, floppies, server racks,
+grandstand concrete and roof steel, and on the karts themselves the
+plastics, the wheel rims and the tyres. The only things left as flat
+colour are the ones a photograph would ruin — lamp glass, screen glow,
+fuse sparks.
+
+**Why the first attempt looked untextured.** The maps were all uniform
+fine grain. Fine grain is exactly what the mip chain averages away, so
+past a few metres every surface collapsed to one flat colour — mapped,
+but indistinguishable from paint. The fix was to regenerate the terrain
+maps with deliberate *large-scale* structure — mown stripes, gravel
+drifts, slab fractures, staining — and to check each one by shrinking it
+to 32×32: if you can still see light and dark shapes at that size, the
+structure survives distance.
+
+Two more things follow from the same problem. Tile sizes are set from
+the real size of the surface (the cliff curtains had one rock tile
+stretched across 500 units, which is why they read as flat paint), and
+the terrain ribbons carry a slow vertex-colour tint — a swing of light
+and dark tens of metres across, on three periods that don't divide into
+each other or into the tile size. It costs no memory and no fill, it
+restores the large scale that distance erases, and it hides the repeat.
+
+Asphalt is the deliberate exception: it keeps a fine, near-uniform grain,
+because any feature you could pick out on a road repeats every tile and
+turns a straight into wallpaper. Its variation comes from the vertex
+tint alone. Lane markings are not baked into it either — they ride on a
+separate ribbon whose UV spans the road width exactly, so the grain can
+tile freely underneath while the markings stay crisp and correctly
+placed.
 
 ## Performance
 
-The 3-D buffer scales itself. Frame times are sampled continuously and
-the render scale moves between 60% and 100% to hold 60 fps, judged on a
-**median** so a single hitch can't spike it, and stepped gradually with a
-cooldown so it settles instead of oscillating. Only the WebGL buffer is
-scaled — the HUD is DOM and stays sharp at any scale. Device pixel ratio
-is capped at 1.5, past which extra pixels cost fill rate without being
-visible on a scene moving this fast.
+The brief was to go faster *without* looking worse, so the work started
+by measuring rather than guessing. Two findings drove it.
 
-Kart textures are shared through a cache keyed on mascot and part. Eight
-karts previously rebuilt the same maps eight times over — same canvases,
-same GPU uploads, same materials — which cost far more than the geometry
-did.
+**Anisotropic filtering was the single biggest cost in the frame.**
+Dropping it from 8× to 1× cut fragment time by 40% on its own — the road,
+the verges and the ground are all viewed at a grazing angle, which is
+precisely the case anisotropy pays for. So it became the first quality
+dial rather than a fixed setting: it now defaults to 4× (visually
+indistinguishable from 8× on a surface moving at 200 km/h, roughly half
+the cost) and, when frames get slow, the renderer gives up filtering
+*before* it gives up resolution, and restores it last. Losing a level of
+anisotropy is nearly invisible; losing 40% of your pixels is not. The
+net effect is that the game now holds **full render scale** where it
+previously fell back to 90%, at a **36% lower cost per pixel** — faster
+and sharper at the same time.
+
+**The backdrop was being drawn first and thrown away.** The sky dome and
+the mountain curtains rendered before everything else, so every sky pixel
+was textured and then painted over by the ground, the terrain and the
+road. They are now drawn *last* in the opaque pass with the depth test on
+and depth writes off, so only the pixels that actually survive to the
+horizon are ever shaded. The ground plane moved after the verges for the
+same reason. Identical image, far fewer fragments.
+
+Beyond that: the road markings ribbon is road-sized but mostly empty, so
+it uses `alphaTest` to discard blank fragments before blending rather
+than compositing a transparent pixel over the asphalt; and kart textures
+are shared through a cache keyed on mascot and part, because eight karts
+were rebuilding the same maps eight times over — same canvases, same GPU
+uploads, same materials — which cost far more than the geometry did.
+
+Underneath it all the buffer still scales itself. Frame times are sampled
+continuously and the render scale moves between 60% and 100% to hold
+60 fps, judged on a **median** so a single hitch can't spike it, and
+stepped gradually with a cooldown so it settles instead of oscillating.
+Only the WebGL buffer is scaled — the HUD is DOM and stays sharp at any
+scale. Device pixel ratio is capped at 1.5, past which extra pixels cost
+fill rate without being visible on a scene moving this fast.
 
 ## Layout
 

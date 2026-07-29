@@ -9,6 +9,12 @@ var Art = (function () {
 
   var maxAnisotropy = 1;
 
+  /* Every texture handed out is kept here so the anisotropy level can be
+     re-applied later.  Filtering the road and the terrain at a grazing
+     angle is the single most expensive thing the fragment shader does,
+     and it is the quality dial worth spending first — see setAnisotropy. */
+  var allTextures = [];
+
   function C(w, h) {
     var c = document.createElement('canvas');
     c.width = w; c.height = h;
@@ -28,6 +34,7 @@ var Art = (function () {
     t.repeat.set(rx || 1, ry || 1);
     t.anisotropy = maxAnisotropy;
     t.needsUpdate = true;
+    allTextures.push(t);
     return t;
   }
 
@@ -953,7 +960,18 @@ var Art = (function () {
   }
 
   return {
-    setAnisotropy: function (v) { maxAnisotropy = v; },
+    /* Applies to textures already in the scene as well as future ones,
+       so the renderer can trade filtering quality at runtime.  Costs a
+       re-upload, so callers are expected to change it rarely. */
+    setAnisotropy: function (v) {
+      if (v === maxAnisotropy) return;
+      maxAnisotropy = v;
+      for (var i = 0; i < allTextures.length; i++) {
+        allTextures[i].anisotropy = v;
+        allTextures[i].needsUpdate = true;
+      }
+    },
+    anisotropy: function () { return maxAnisotropy; },
     texture: texture,
     loadSurface: loadSurface,
     paint: paint,

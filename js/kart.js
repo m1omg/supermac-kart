@@ -44,6 +44,15 @@ var Karts = (function () {
     return texCache[key];
   }
 
+  /* Photographic surface map, flat mid-grey if the file is unavailable
+     so a tinted material still lands on the right colour. */
+  function surfMap(name, rx, ry) {
+    return Art.loadSurface(name, Art.paint(8, 8, function (c, w, h) {
+      c.fillStyle = '#ffffff';
+      c.fillRect(0, 0, w, h);
+    }), rx || 1, ry || 1);
+  }
+
   function angDiff(a, b) {
     var d = (a - b + Math.PI) % TAU;
     if (d < 0) d += TAU;
@@ -354,14 +363,20 @@ var Karts = (function () {
   function buildKartMesh(m) {
     var g = new THREE.Group();
 
+    /* The chassis panels are their own hand-drawn art; these are the
+       parts every kart shares.  Each is a real map multiplied by the
+       mascot's colour, so a Bondi frame and a Platinum one are the same
+       moulded plastic in two colours rather than two flat fills. */
+    var plastic = surfMap('beige_plastic', 2, 2);
     var mats = {
-      body:  new THREE.MeshLambertMaterial({ color: m.color }),
-      dark:  new THREE.MeshLambertMaterial({ color: Util.mix(m.color, '#000000', 0.55) }),
-      trim:  new THREE.MeshLambertMaterial({ color: m.trim }),
-      tyre:  new THREE.MeshLambertMaterial({ color: 0x1a1a1f }),
-      rim:   new THREE.MeshLambertMaterial({ color: 0xb9bec9 }),
-      paper: new THREE.MeshLambertMaterial({ color: 0xf4f4ef }),
-      slot:  new THREE.MeshLambertMaterial({ color: 0x2a2a30 })
+      body:  new THREE.MeshLambertMaterial({ map: plastic, color: m.color }),
+      dark:  new THREE.MeshLambertMaterial({ map: surfMap('dark_metal', 2, 2),
+                                             color: Util.mix(m.color, '#000000', 0.55) }),
+      trim:  new THREE.MeshLambertMaterial({ map: plastic, color: m.trim }),
+      tyre:  new THREE.MeshLambertMaterial({ map: surfMap('rubber', 2, 1), color: 0x8f8f96 }),
+      rim:   new THREE.MeshLambertMaterial({ map: surfMap('dark_metal', 1, 1), color: 0xe4e8f0 }),
+      paper: new THREE.MeshLambertMaterial({ map: plastic, color: 0xf4f4ef }),
+      slot:  new THREE.MeshLambertMaterial({ map: surfMap('dark_metal', 1, 1), color: 0x50525c })
     };
 
     /* shared go-kart underpinnings */
@@ -475,8 +490,12 @@ var Karts = (function () {
     this.dragRate  = 7;
     this.turnRate  = 1.75 + m.grip * 0.95;     /* radians per second        */
     this.gripRate  = 4.6 + m.grip * 5.2;       /* how fast velocity follows */
-    this.nitroRegen = 1.6 + m.nitro * 2.6;
-    this.nitroDrain = 26;
+    /* Nitro is a resource, not a cooldown: nothing refills it on its own.
+       The rating buys you a bigger yield per RAM chip and a slower burn,
+       so a high-nitro mascot gets more laps out of the same pickups. */
+    this.nitroYield = 26 + m.nitro * 16;       /* per chip                 */
+    this.nitroDrain = 31 - m.nitro * 7;        /* percent per second       */
+    this.nitroMin   = 8;                       /* needed to light it up    */
 
     this.pos = new THREE.Vector3();
     this.heading = 0;
@@ -493,7 +512,8 @@ var Karts = (function () {
     this.onRoad = true;
     this.airborne = 0;
 
-    this.nitro = 100;
+    this.nitro = 0;
+    this.nitroGained = 0;      /* last credit, for the HUD to announce */
     this.boost = 0;
     this.driftCharge = 0;
     this.drifting = false;
@@ -542,6 +562,16 @@ var Karts = (function () {
     this.smokeIdx = 0;
   }
 
+  /* The only way the bar ever goes up.  Returns what was actually
+     credited, so a hit on a full bar doesn't announce itself. */
+  Kart.prototype.gainNitro = function (amount) {
+    var before = this.nitro;
+    this.nitro = Math.min(100, this.nitro + amount);
+    var got = this.nitro - before;
+    if (got > 0) this.nitroGained += got;
+    return got;
+  };
+
   /* place on the grid, behind the start line */
   Kart.prototype.placeOnGrid = function (rowsBack, lane) {
     var track = this.track;
@@ -560,7 +590,7 @@ var Karts = (function () {
     this.u = loc.u;
     this.lastU = loc.u;
     this.totalProgress = this.u;
-    this.nitro = 100;
+    this.nitro = 0;
     this.boost = 0;
     this.finished = false;
     this.lapTimes = [];
@@ -600,6 +630,26 @@ var Karts = (function () {
     lane -= THREE.MathUtils.clamp(curv * 26, -0.55, 0.55);
     lane = THREE.MathUtils.clamp(lane, -0.82, 0.82);
 
+    /* Chips are the only refill, so a driver running dry goes and gets
+       one — but only leans toward it, never abandons the racing line.
+       world.pickups is in a fixed order and `taken` is simulation state,
+       so this stays as deterministic as the rest of the AI. */
+    if (this.nitro < 45) {
+      var want = null, wantD = 1e9;
+      for (var q = 0; q < world.pickups.length; q++) {
+        var pk = world.pickups[q];
+        if (pk.taken > 0) continue;
+        var dq = (pk.index - this.sampleIdx + track.count) % track.count;
+        if (dq < 6 || dq > ahead + 26) continue;
+        if (dq < wantD) { wantD = dq; want = pk; }
+      }
+      if (want) {
+        var pull = 0.55 * (1 - this.nitro / 45);
+        lane += THREE.MathUtils.clamp(want.lane - lane, -pull, pull);
+        lane = THREE.MathUtils.clamp(lane, -0.82, 0.82);
+      }
+    }
+
     var tp = _vec.copy(target.pos)
       .addScaledVector(target.right, lane * track.halfWidth);
 
@@ -634,11 +684,14 @@ var Karts = (function () {
     steer = THREE.MathUtils.clamp(steer + this.avoid, -1, 1);
     this.avoid *= Math.exp(-2.5 * dt);
 
-    /* nitro on the fast bits */
+    /* Nitro on the fast bits.  With a finite bar the AI spends what it
+       has rather than waiting for a refill that never comes: it lights
+       up once it holds roughly one chip's worth. */
     this.aiNitroCooldown -= dt;
     var straight = worst < 0.004 && this.speed > cornerMax * 0.9;
-    var nitro = straight && this.nitro > 42 && this.aiNitroCooldown <= 0;
-    if (nitro && this.nitro < 12) this.aiNitroCooldown = 3 + this.rnd() * 4;
+    var nitro = straight && this.aiNitroCooldown <= 0 &&
+                (this.nitroLit ? this.nitro > 0 : this.nitro >= this.nitroYield * 0.8);
+    if (!nitro && this.nitro < this.nitroMin) this.aiNitroCooldown = 1 + this.rnd() * 2;
 
     /* Rubber band, measured against the player rather than the
        leader: anyone ahead of them eases off a little, anyone behind
@@ -677,15 +730,19 @@ var Karts = (function () {
     var edge = track.halfWidth + track.kerbWidth;
     this.onRoad = Math.abs(loc.offset) < edge;
 
-    /* ---- nitro ---- */
+    /* ---- nitro ----
+       Nothing here adds to the bar.  It is filled only by RAM chips and
+       by knocking into someone (see gainNitro), which is what makes it
+       worth going out of your way for either.  A minimum charge is
+       needed to light it, so the last sliver can't be tapped forever. */
     var burning = false;
-    if (input.nitro && this.nitro > 1 && !this.finished) {
+    if (input.nitro && !this.finished &&
+        (this.nitroLit ? this.nitro > 0 : this.nitro >= this.nitroMin)) {
       this.nitro = Math.max(0, this.nitro - this.nitroDrain * dt);
       this.boost = Math.max(this.boost, 0.12);
       burning = true;
-    } else {
-      this.nitro = Math.min(100, this.nitro + this.nitroRegen * dt);
     }
+    this.nitroLit = burning;
     if (this.boost > 0) this.boost = Math.max(0, this.boost - dt);
     this.burning = burning || this.boost > 0.02;
 
@@ -748,8 +805,8 @@ var Karts = (function () {
       this.driftCharge += dt;
     } else if (this.driftCharge > 0) {
       if (this.driftCharge > 0.85) {
+        /* pays out in speed only — the bar is fed by chips and contact */
         this.boost = Math.max(this.boost, 0.55 + Math.min(0.7, this.driftCharge * 0.25));
-        this.nitro = Math.min(100, this.nitro + 8);
         this.miniTurbo = 0.6;
       }
       this.driftCharge = 0;
@@ -834,7 +891,6 @@ var Karts = (function () {
       if (!this.onPad) {
         this.onPad = true;
         this.boost = Math.max(this.boost, 0.95);
-        this.nitro = Math.min(100, this.nitro + 10);
         this.justBoosted = true;
       }
     } else {
@@ -850,8 +906,8 @@ var Karts = (function () {
       var dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z;
       if (dx * dx + dz * dz < 9) {
         p.taken = 7;
-        this.nitro = Math.min(100, this.nitro + 34);
-        this.justPicked = true;
+        var got = this.gainNitro(this.nitroYield);
+        if (got > 0) this.justPicked = got;
       }
     }
 
@@ -903,12 +959,24 @@ var Karts = (function () {
        dead stop within a second of touching. */
     var vaN = Math.sin(this.velAngle) * nx + Math.cos(this.velAngle) * nz;
     var vbN = Math.sin(other.velAngle) * nx + Math.cos(other.velAngle) * nz;
-    var closing = Math.max(0, this.speed * vaN - other.speed * vbN);
+    var intoA = this.speed * vaN;        /* >0: this kart drove into it  */
+    var intoB = -other.speed * vbN;      /* >0: the other one did        */
+    var closing = Math.max(0, intoA + intoB);
 
     /* heavier mascots shrug contact off better */
     var mine = 1.6 - this.mascot.grip * 0.5;
     this.speed = Math.max(0, this.speed - closing * mine * dt * 2.2);
     other.speed = Math.max(0, other.speed - closing * 0.9 * dt * 1.4);
+
+    /* Whoever drove into the contact harvests nitro from it, scaled by
+       dt and by the closing speed — so it reads as an impulse.  Contact
+       equalises the two speeds within a few ticks, which caps what a
+       single shove can be worth without needing an explicit cooldown. */
+    if (closing > 1.5) {
+      var reward = closing * dt * 2.6;
+      if (intoA >= intoB) this.gainNitro(reward);
+      else other.gainNitro(reward);
+    }
 
     if (this.ai) this.avoid += nx * 0.9 * dt;
     if (other.ai) other.avoid -= nx * 0.9 * dt;
