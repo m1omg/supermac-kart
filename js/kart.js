@@ -22,6 +22,28 @@ var Karts = (function () {
   var _euler = new THREE.Euler();
   var _vec = new THREE.Vector3();
 
+  /* ==========================================================
+     Texture cache.
+
+     Karts are built eight at a time and most of their maps are
+     identical — the flame, the blob shadow, the smoke puff, and
+     everything keyed only on the mascot.  Building them per kart
+     meant dozens of redundant 256px canvases and, worse, dozens of
+     separate GPU uploads and materials.  Everything goes through
+     here so each distinct map exists exactly once.
+     ========================================================== */
+
+  var texCache = {};
+
+  function cachedTex(key, make, rx, ry) {
+    if (!texCache[key]) {
+      var t = Art.texture(make(), rx || 1, ry || 1);
+      t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+      texCache[key] = t;
+    }
+    return texCache[key];
+  }
+
   function angDiff(a, b) {
     var d = (a - b + Math.PI) % TAU;
     if (d < 0) d += TAU;
@@ -34,12 +56,10 @@ var Karts = (function () {
 
   function buildHead(m) {
     var group = new THREE.Group();
-    var faceTex = Art.texture(Art.face(m), 1, 1);
-    faceTex.wrapS = faceTex.wrapT = THREE.ClampToEdgeWrapping;
+    var faceTex = cachedTex('face:' + m.id, function () { return Art.face(m); });
 
     if (m.head === 'box') {
-      var backTex = Art.texture(Art.back(m), 1, 1);
-      backTex.wrapS = backTex.wrapT = THREE.ClampToEdgeWrapping;
+      var backTex = cachedTex('back:' + m.id, function () { return Art.back(m); });
       var side = new THREE.MeshLambertMaterial({ color: m.color });
       var mats = [
         side, side,                                             /* +x, -x */
@@ -126,9 +146,9 @@ var Karts = (function () {
      the mascot, otherwise a plain desktop, so a rider's face never
      appears twice on the same kart. */
   function screenTexture(m) {
-    var tex = Art.texture(m.rider ? Art.desktopScreen() : Art.face(m), 1, 1);
-    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-    return tex;
+    return m.rider
+      ? cachedTex('desktop', function () { return Art.desktopScreen(); })
+      : cachedTex('face:' + m.id, function () { return Art.face(m); });
   }
 
   var CHASSIS = {
@@ -136,8 +156,7 @@ var Karts = (function () {
     /* The 1984 compact Macintosh: tapered beige case, sloped
        front bezel, floppy slot, carry handle recess. */
     compact: function (g, m, mats) {
-      var sideTex = Art.texture(Art.compactSide(m.color), 1, 1);
-      sideTex.wrapS = sideTex.wrapT = THREE.ClampToEdgeWrapping;
+      var sideTex = cachedTex('side:' + m.id, function () { return Art.compactSide(m.color); });
       var caseMat = new THREE.MeshLambertMaterial({ map: sideTex });
 
       /* main case, narrower at the top like the real thing */
@@ -171,8 +190,7 @@ var Karts = (function () {
 
     /* iMac G3: translucent curved shell over a bright core. */
     imac: function (g, m, mats) {
-      var shellTex = Art.texture(Art.shellPanel(m.color), 1, 1);
-      shellTex.wrapS = shellTex.wrapT = THREE.ClampToEdgeWrapping;
+      var shellTex = cachedTex('shell:' + m.id, function () { return Art.shellPanel(m.color); });
 
       /* opaque inner body so the shell has something to sit over */
       var core = new THREE.Mesh(
@@ -220,8 +238,7 @@ var Karts = (function () {
     /* A System 7 window on wheels: white panel, striped title
        bar, close box.  Finder and the Bomb both ride one. */
     dialog: function (g, m, mats) {
-      var barTex = Art.texture(Art.titleBar(m.trim), 1, 1);
-      barTex.wrapS = barTex.wrapT = THREE.ClampToEdgeWrapping;
+      var barTex = cachedTex('bar:' + m.id, function () { return Art.titleBar(m.trim); });
 
       var win = new THREE.Mesh(new THREE.BoxGeometry(2.3, 1.6, 2.9), mats.paper);
       win.position.set(0, 1.25, -0.15);
@@ -261,7 +278,7 @@ var Karts = (function () {
 
     /* 2013 Mac Pro: the black cylinder, laid along the kart. */
     cylinder: function (g, m, mats) {
-      var skinTex = Art.texture(Art.face(m), 1, 3);
+      var skinTex = cachedTex('skin:' + m.id, function () { return Art.face(m); }, 1, 3);
       var can = new THREE.Mesh(
         new THREE.CylinderGeometry(1.05, 1.05, 3.0, 24, 1, true),
         new THREE.MeshPhongMaterial({ map: skinTex, shininess: 110, specular: 0x555a66 })
@@ -283,8 +300,7 @@ var Karts = (function () {
       throat.rotation.y = Math.PI;
       g.add(throat);
 
-      var glowTex = Art.texture(Art.radial('rgba(125,227,255,.9)'), 1, 1);
-      glowTex.wrapS = glowTex.wrapT = THREE.ClampToEdgeWrapping;
+      var glowTex = cachedTex('glow:cyan', function () { return Art.radial('rgba(125,227,255,.9)'); });
       var glow = new THREE.Sprite(new THREE.SpriteMaterial({
         map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true
       }));
@@ -298,8 +314,7 @@ var Karts = (function () {
     /* LaserWriter — Clarus the dogcow came from a print dialog,
        so of course the dogcow drives the printer. */
     laserwriter: function (g, m, mats) {
-      var panelTex = Art.texture(Art.printerPanel(), 1, 1);
-      panelTex.wrapS = panelTex.wrapT = THREE.ClampToEdgeWrapping;
+      var panelTex = cachedTex('printer', function () { return Art.printerPanel(); });
       var caseMat = new THREE.MeshLambertMaterial({ map: panelTex });
 
       var body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.35, 3.1), caseMat);
@@ -318,8 +333,7 @@ var Karts = (function () {
       g.add(tray);
 
       /* a sheet mid-print, with the dogcow's own face on it */
-      var faceTex = Art.texture(Art.face(m), 1, 1);
-      faceTex.wrapS = faceTex.wrapT = THREE.ClampToEdgeWrapping;
+      var faceTex = cachedTex('face:' + m.id, function () { return Art.face(m); });
       var sheet = new THREE.Mesh(
         new THREE.PlaneGeometry(1.3, 1.0),
         new THREE.MeshLambertMaterial({ map: faceTex, side: THREE.DoubleSide })
@@ -415,8 +429,7 @@ var Karts = (function () {
       });
 
     /* exhaust flames */
-    var flameTex = Art.texture(Art.radial('rgba(255,214,120,.95)'), 1, 1);
-    flameTex.wrapS = flameTex.wrapT = THREE.ClampToEdgeWrapping;
+    var flameTex = cachedTex('flame', function () { return Art.radial('rgba(255,214,120,.95)'); });
     var flames = [];
     [-0.6, 0.6].forEach(function (x) {
       var f = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -430,8 +443,7 @@ var Karts = (function () {
     });
 
     /* blob shadow */
-    var shadowTex = Art.texture(Art.blob('rgba(0,0,0,.55)', 0.55), 1, 1);
-    shadowTex.wrapS = shadowTex.wrapT = THREE.ClampToEdgeWrapping;
+    var shadowTex = cachedTex('shadow', function () { return Art.blob('rgba(0,0,0,.55)', 0.55); });
     var shadow = new THREE.Mesh(
       new THREE.PlaneGeometry(5, 6),
       new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, opacity: 0.75 })
@@ -517,8 +529,7 @@ var Karts = (function () {
     this.steerVisual = 0;
 
     /* smoke pool */
-    var puffTex = Art.texture(Art.puff(), 1, 1);
-    puffTex.wrapS = puffTex.wrapT = THREE.ClampToEdgeWrapping;
+    var puffTex = cachedTex('puff', function () { return Art.puff(); });
     this.smoke = [];
     for (var i = 0; i < 7; i++) {
       var sp = new THREE.Sprite(new THREE.SpriteMaterial({

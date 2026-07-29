@@ -668,23 +668,63 @@ var Art = (function () {
     });
   }
 
+  /* Grandstand crowd.
+
+     Drawn as overlapping shoulders-and-head silhouettes packed tightly
+     and shaded back-to-front, rather than evenly spaced dots on a grid —
+     a regular grid of bright circles reads as toy bricks, not people.
+     Colours stay muted and desaturated so the stands sit behind the
+     action instead of competing with the karts. */
   function crowd() {
-    return paint(256, 128, function (ctx, w, h) {
-      ctx.fillStyle = '#20242c';
+    return paint(512, 256, function (ctx, w, h) {
+      /* seat colour showing between people */
+      ctx.fillStyle = '#3a4150';
       ctx.fillRect(0, 0, w, h);
+
       var rnd = Util.rng(99);
-      var cols = ['#e8443f', '#f3a63b', '#f7e04a', '#59c04a', '#3f8ae0', '#8a4fd0', '#eeeeee'];
-      for (var row = 0; row < 5; row++) {
-        for (var i = 0; i < 26; i++) {
-          ctx.fillStyle = cols[Math.floor(rnd() * cols.length)];
-          var x = i * (w / 26) + rnd() * 3;
-          var y = h - (row + 1) * (h / 5.5) + rnd() * 3;
+      var shirts = ['#c2665f', '#5f82c2', '#94a05c', '#c2a05c', '#8a6ba8',
+                    '#d6dae0', '#4f9e8c', '#b47ba8', '#6f8296', '#c49a72'];
+      var skins = ['#c99b74', '#a87a56', '#e0b591', '#8a5e3f', '#6b4630'];
+
+      var rows = 7;
+      for (var row = rows - 1; row >= 0; row--) {
+        /* rows further back sit higher, smaller and darker */
+        var depth = row / (rows - 1);
+        var y = h * (0.94 - depth * 0.72);
+        var scale = 1 - depth * 0.42;
+        /* back rows sit in shade, but never so dark that the stand
+           reads as an empty black slab from the track */
+        var shade = 0.72 + (1 - depth) * 0.28;
+        var step = w / (26 + row * 5);
+
+        for (var x = -step; x < w + step; x += step) {
+          var px = x + (rnd() - 0.5) * step * 0.55;
+          var r = step * 0.34 * scale;
+          if (rnd() < 0.06) continue;          /* the odd empty seat */
+
+          var shirt = shirts[Math.floor(rnd() * shirts.length)];
+          var skin = skins[Math.floor(rnd() * skins.length)];
+
+          /* shoulders */
+          ctx.fillStyle = Util.mix('#000000', shirt, shade);
           ctx.beginPath();
-          ctx.arc(x + w / 52, y, w / 62, 0, Math.PI * 2);
+          ctx.ellipse(px, y + r * 1.5, r * 1.5, r * 1.4, 0, Math.PI, 0);
           ctx.fill();
-          ctx.fillRect(x + w / 90, y, w / 34, h / 9);
+
+          /* head */
+          ctx.fillStyle = Util.mix('#000000', skin, shade);
+          ctx.beginPath();
+          ctx.arc(px, y, r, 0, Math.PI * 2);
+          ctx.fill();
         }
       }
+
+      /* a touch of depth haze over the back rows */
+      var g = ctx.createLinearGradient(0, 0, 0, h * 0.45);
+      g.addColorStop(0, 'rgba(58,65,80,.45)');
+      g.addColorStop(1, 'rgba(58,65,80,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h * 0.45);
     });
   }
 
@@ -719,9 +759,22 @@ var Art = (function () {
     });
   }
 
-  /* Sky dome: vertical gradient with a sun blob painted in. */
+  /* ==========================================================
+     Sky dome.
+
+     The dome wraps the texture right around the horizon, so u=1 butts
+     straight up against u=0.  Anything painted near an edge therefore
+     has to be painted again on the far side, or it ends as a hard
+     vertical seam across the sky.  wrapDraw() does exactly that: it
+     runs the same drawing at x, x-w and x+w, so a cloud clipped by the
+     right edge reappears continuing across the left.
+     ========================================================== */
+
   function sky(theme) {
-    return paint(512, 512, function (ctx, w, h) {
+    var W = 1024, H = 512;
+    return paint(W, H, function (ctx, w, h) {
+
+      /* the gradient varies only vertically, so it cannot seam */
       var g = ctx.createLinearGradient(0, 0, 0, h);
       g.addColorStop(0.00, theme.sky[0]);
       g.addColorStop(0.42, theme.sky[1]);
@@ -730,35 +783,47 @@ var Art = (function () {
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, w, h);
 
+      /* paint something at x, and again wrapped round both edges */
+      function wrapDraw(x, reach, draw) {
+        draw(x);
+        if (x + reach > w) draw(x - w);
+        if (x - reach < 0) draw(x + w);
+      }
+
+      var rnd = Util.rng(theme.cloudSeed || 5);
+
       /* sun / moon halo */
       var sx = w * theme.sunU, sy = h * theme.sunV;
-      var sg = ctx.createRadialGradient(sx, sy, 2, sx, sy, w * 0.3);
-      sg.addColorStop(0, theme.sunColor);
-      sg.addColorStop(0.12, Util.rgba(theme.sunGlowHex, 0.75));
-      sg.addColorStop(1, Util.rgba(theme.sunGlowHex, 0));
-      ctx.fillStyle = sg;
-      ctx.fillRect(0, 0, w, h);
+      var reach = w * 0.3;
+      wrapDraw(sx, reach, function (x) {
+        var sg = ctx.createRadialGradient(x, sy, 2, x, sy, reach);
+        sg.addColorStop(0, theme.sunColor);
+        sg.addColorStop(0.12, Util.rgba(theme.sunGlowHex, 0.75));
+        sg.addColorStop(1, Util.rgba(theme.sunGlowHex, 0));
+        ctx.fillStyle = sg;
+        ctx.fillRect(x - reach, sy - reach, reach * 2, reach * 2);
+      });
 
       /* clouds */
-      var rnd = Util.rng(theme.cloudSeed || 5);
       ctx.fillStyle = theme.cloud;
-      for (var i = 0; i < 26; i++) {
+      for (var i = 0; i < 34; i++) {
         var cx = rnd() * w;
-        var cy = h * (0.24 + rnd() * 0.4);
-        var cw = w * (0.04 + rnd() * 0.09);
-        ctx.beginPath();
-        ctx.ellipse(cx, cy, cw, cw * 0.3, 0, 0, Math.PI * 2);
-        ctx.ellipse(cx + cw * 0.6, cy + cw * 0.08, cw * 0.62, cw * 0.22, 0, 0, Math.PI * 2);
-        ctx.ellipse(cx - cw * 0.6, cy + cw * 0.1, cw * 0.5, cw * 0.2, 0, 0, Math.PI * 2);
-        ctx.fill();
+        var cy = h * (0.22 + rnd() * 0.42);
+        var cw = w * (0.02 + rnd() * 0.045);
+        wrapDraw(cx, cw * 2, function (x) {
+          ctx.beginPath();
+          ctx.ellipse(x, cy, cw, cw * 0.3, 0, 0, Math.PI * 2);
+          ctx.ellipse(x + cw * 0.6, cy + cw * 0.08, cw * 0.62, cw * 0.22, 0, 0, Math.PI * 2);
+          ctx.ellipse(x - cw * 0.6, cy + cw * 0.1, cw * 0.5, cw * 0.2, 0, 0, Math.PI * 2);
+          ctx.fill();
+        });
       }
 
       if (theme.stars) {
         ctx.fillStyle = '#fff';
-        for (var s = 0; s < 260; s++) {
-          var a = 0.25 + rnd() * 0.75;
-          ctx.globalAlpha = a;
-          ctx.fillRect(rnd() * w, rnd() * h * 0.5, 1.6, 1.6);
+        for (var st = 0; st < 420; st++) {
+          ctx.globalAlpha = 0.25 + rnd() * 0.75;
+          ctx.fillRect(rnd() * w, rnd() * h * 0.55, 1.6, 1.6);
         }
         ctx.globalAlpha = 1;
       }

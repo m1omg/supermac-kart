@@ -121,6 +121,21 @@ Lane markings are *not* baked into the asphalt — they ride on a separate
 ribbon whose UV spans the road width exactly, so the grain can tile
 freely underneath while the markings stay crisp and correctly placed.
 
+## Performance
+
+The 3-D buffer scales itself. Frame times are sampled continuously and
+the render scale moves between 60% and 100% to hold 60 fps, judged on a
+**median** so a single hitch can't spike it, and stepped gradually with a
+cooldown so it settles instead of oscillating. Only the WebGL buffer is
+scaled — the HUD is DOM and stays sharp at any scale. Device pixel ratio
+is capped at 1.5, past which extra pixels cost fill rate without being
+visible on a scene moving this fast.
+
+Kart textures are shared through a cache keyed on mascot and part. Eight
+karts previously rebuilt the same maps eight times over — same canvases,
+same GPU uploads, same materials — which cost far more than the geometry
+did.
+
 ## Layout
 
 ```

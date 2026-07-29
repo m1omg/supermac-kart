@@ -356,11 +356,19 @@ var Tracks = (function () {
      one copy of it and everyone calls this.
      --------------------------------------------------------- */
 
-  var VERGE = [
-    { d: 0,   lift: -0.12, flat: 0    },   /* d = distance out from the kerb edge */
-    { d: 26,  lift: -2.2,  flat: 0.35 },
-    { d: 120, lift: -6,    flat: 0.92 }
-  ];
+  /* Cross-section of the ground beyond the kerb, as distance out from
+     the kerb edge.  The first span is the gravel runoff (its outer edge
+     is exactly where the barrier stands), then grass falling away to
+     the surrounding terrain.  world.js builds its ribbons from these
+     same numbers, so what you drive on is what you see. */
+  function vergeProfile(runoff) {
+    return [
+      { d: 0,       lift: -0.1,  flat: 0    },
+      { d: runoff,  lift: -0.55, flat: 0    },
+      { d: 26,      lift: -2.2,  flat: 0.35 },
+      { d: 120,     lift: -6,    flat: 0.92 }
+    ];
+  }
 
   Track.prototype.vergeY = function (sample, offset) {
     var edge = this.halfWidth + this.kerbWidth;
@@ -370,6 +378,7 @@ var Tracks = (function () {
     var sign = offset > 0 ? 1 : -1;
     var d = a - edge;
     var baseY = this.baseY;
+    var VERGE = this._verge || (this._verge = vergeProfile(this.runoff));
 
     function at(cp) {
       var y = sample.pos.y + sample.right.y * (sign * (edge + cp.d)) + sample.up.y * cp.lift;

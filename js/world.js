@@ -97,15 +97,26 @@ var World = (function () {
     return geo;
   }
 
+  /* Surface map with a flat-colour fallback, so a missing or blocked
+     texture file degrades to the right colour rather than to nothing. */
+  function surf(name, hex, rx, ry) {
+    return Art.loadSurface(name, Art.paint(8, 8, function (c, w, h) {
+      c.fillStyle = hex;
+      c.fillRect(0, 0, w, h);
+    }), rx || 1, ry || 1);
+  }
+
   /* ==========================================================
      Backdrop: sky dome + jagged mountain curtains
      ========================================================== */
 
   function buildSky(theme) {
     var tex = Art.texture(Art.sky(theme), 1, 1);
-    tex.wrapS = THREE.ClampToEdgeWrapping;
+    /* the texture is painted to wrap, so let it repeat horizontally —
+       clamping here is what produced the hard vertical seam */
+    tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.ClampToEdgeWrapping;
-    var geo = new THREE.SphereGeometry(7000, 32, 20);
+    var geo = new THREE.SphereGeometry(7000, 64, 24);
     var mat = new THREE.MeshBasicMaterial({
       map: tex, side: THREE.BackSide, fog: false, depthWrite: false
     });
@@ -123,7 +134,7 @@ var World = (function () {
 
     layers.forEach(function (L, li) {
       var rnd = Util.rng(seed + li * 977);
-      var verts = [], colors = [], idx = [];
+      var verts = [], colors = [], uvs = [], idx = [];
       var top = new THREE.Color(L.color);
       var bottom = new THREE.Color(L.color).multiplyScalar(0.55);
 
@@ -137,10 +148,13 @@ var World = (function () {
         var h = L.h * Math.pow(Math.max(0.08, n), L.sharp);
 
         var x = Math.cos(a) * L.r, z = Math.sin(a) * L.r;
+        var u = j / L.cols;
         verts.push(x, baseY - 120, z);
         colors.push(bottom.r, bottom.g, bottom.b);
+        uvs.push(u, 0);
         verts.push(x, baseY + h, z);
         colors.push(top.r, top.g, top.b);
+        uvs.push(u, 1);
 
         if (j < L.cols) {
           var b0 = j * 2, t0 = j * 2 + 1, b1 = (j + 1) * 2, t1 = (j + 1) * 2 + 1;
@@ -151,9 +165,13 @@ var World = (function () {
       var geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
       geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
       geo.setIndex(idx);
 
+      /* rock across the ridges, tinted by the existing vertex colours
+         so each layer keeps its aerial-perspective shading */
       var mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+        map: surf('rock', L.color, 26, 2),
         vertexColors: true, side: THREE.DoubleSide, fog: false, depthWrite: true
       }));
       mesh.renderOrder = -90;
@@ -301,10 +319,28 @@ var World = (function () {
                                    Art.grass(theme), 1, 1);
     var vergeMat = new THREE.MeshLambertMaterial({ map: vergeTex });
 
+    /* A gravel trap between the kerb and the grass: it is what you
+       actually slide across when you run wide, and it gives the
+       barrier line a visible edge to brake against. */
+    var RUNOFF_TILE = 6;
+    var runoffMat = new THREE.MeshLambertMaterial({
+      map: surf(theme.night ? 'concrete' : 'dirt',
+                theme.night ? '#2a2f3a' : '#c2a878', 1, 1)
+    });
+
     [1, -1].forEach(function (side) {
+      var runoff = ribbon(track, {
+        inner: side * (hw + kw), outer: side * (hw + kw + BARRIER),
+        innerLift: -0.1, outerLift: -0.55,
+        uPerUnit: 1 / RUNOFF_TILE, vPerUnit: 1 / RUNOFF_TILE, seed: 91 + side
+      });
+      var runoffMesh = new THREE.Mesh(runoff, runoffMat);
+      runoffMesh.name = 'runoff-' + side;
+      scene.add(runoffMesh);
+
       var near = ribbon(track, {
-        inner: side * (hw + kw), outer: side * (hw + kw + 26),
-        innerLift: -0.12, outerLift: -2.2,
+        inner: side * (hw + kw + BARRIER), outer: side * (hw + kw + 26),
+        innerLift: -0.55, outerLift: -2.2,
         outerFlatten: 0.35, baseY: baseY, noise: 1.2,
         uPerUnit: 1 / GRASS_TILE, vPerUnit: 1 / GRASS_TILE, seed: 31 + side
       });
@@ -412,7 +448,7 @@ var World = (function () {
     /* gantry over the line */
     var s0 = track.samples[0];
     var gantry = new THREE.Group();
-    var pillarMat = new THREE.MeshLambertMaterial({ color: 0x20242c });
+    var pillarMat = new THREE.MeshLambertMaterial({ map: surf('dark_metal', '#20242c', 1, 4) });
     [-1, 1].forEach(function (side) {
       var p = new THREE.Mesh(new THREE.BoxGeometry(1.6, 13, 1.6), pillarMat);
       p.position.copy(s0.pos).addScaledVector(s0.right, side * (hw + 3.2));
@@ -434,10 +470,16 @@ var World = (function () {
     /* Grandstands flanking the line.  They live *outside* the barrier
        (which sits at hw + kw + BARRIER) so a kart can never reach them,
        and their seating is raked toward the track. */
-    var crowdTex = Art.texture(Art.crowd(), 3, 1);
-    var frameMat = new THREE.MeshLambertMaterial({ color: 0x6b7280 });
-    var roofMat = new THREE.MeshLambertMaterial({ color: 0x2f3540 });
-    var seatMat = new THREE.MeshLambertMaterial({ map: crowdTex });
+    /* The crowd art is one bank of raked rows at roughly 2:1, so it goes
+       on a single angled face at that aspect.  Splitting it across four
+       stacked tiers squashed all seven rows into each one and turned the
+       stand into dark mush. */
+    var crowdTex = Art.texture(Art.crowd(), 2, 1);
+    var frameMat = new THREE.MeshLambertMaterial({ map: surf('concrete', '#6b7280', 6, 1) });
+    var roofMat = new THREE.MeshLambertMaterial({ map: surf('dark_metal', '#2f3540', 8, 3) });
+    /* unlit: the bank leans away from the sun on half the circuits,
+       and a crowd that goes black in shadow just looks like a hole */
+    var seatMat = new THREE.MeshBasicMaterial({ map: crowdTex });
     var standOffset = hw + kw + BARRIER + 12;
 
     [-1, 1].forEach(function (side) {
@@ -453,12 +495,16 @@ var World = (function () {
         base.position.set(0, 1.5, 0);
         stand.add(base);
 
-        /* raked rows of spectators, stepping up and back */
-        for (var row = 0; row < 4; row++) {
-          var tier = new THREE.Mesh(new THREE.BoxGeometry(33, 1.9, 2.6), seatMat);
-          tier.position.set(0, 3.2 + row * 1.75, 4.2 - row * 2.5);
-          stand.add(tier);
-        }
+        /* one raked seating bank, leaning back away from the track */
+        var seating = new THREE.Mesh(new THREE.PlaneGeometry(33, 10.5), seatMat);
+        seating.position.set(0, 6.4, 2.6);
+        seating.rotation.x = -0.42;
+        stand.add(seating);
+
+        /* solid backing so the bank is never see-through from behind */
+        var backing = new THREE.Mesh(new THREE.BoxGeometry(33.5, 9, 0.6), frameMat);
+        backing.position.set(0, 6.6, -1.4);
+        stand.add(backing);
 
         /* roof on rear posts */
         var roof = new THREE.Mesh(new THREE.BoxGeometry(35, 0.5, 14), roofMat);

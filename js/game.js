@@ -58,7 +58,10 @@ var Game = (function () {
       antialias: true,
       powerPreference: 'high-performance'
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    /* Start conservative: a 2x pixel ratio on a high-DPI panel is four
+       times the fill cost, which is the usual cause of a smooth-looking
+       scene running badly.  adaptQuality() tunes this at runtime. */
+    renderer.setPixelRatio(basePixelRatio());
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     Art.setAnisotropy(Math.min(8, renderer.capabilities.getMaxAnisotropy()));
 
@@ -90,6 +93,58 @@ var Game = (function () {
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+  }
+
+  /* ==========================================================
+     Adaptive resolution
+
+     Rather than pick a quality level up front and hope, watch how long
+     frames actually take and move the render scale between 60% and
+     100% to hold the target.  Judged on a median rather than a mean so
+     one hitch (a GC pause, a track build) can't spike the scale down,
+     and moved in small steps with a cooldown so it settles instead of
+     oscillating.  Only the 3-D buffer is scaled — the HUD is DOM and
+     stays sharp either way.
+     ========================================================== */
+
+  var QUALITY = {
+    target: 1 / 60,
+    scale: 1,
+    min: 0.6,
+    max: 1,
+    samples: [],
+    cooldown: 0
+  };
+
+  function basePixelRatio() {
+    var dpr = window.devicePixelRatio || 1;
+    /* 1.5 is the point past which extra pixels stop being visible on a
+       fast-moving 3-D scene but keep costing fill rate */
+    return Math.min(dpr, 1.5) * QUALITY.scale;
+  }
+
+  function adaptQuality(frame) {
+    var q = QUALITY;
+    q.samples.push(frame);
+    if (q.samples.length < 45) return;
+
+    var sorted = q.samples.slice().sort(function (a, b) { return a - b; });
+    var median = sorted[sorted.length >> 1];
+    q.samples.length = 0;
+
+    if (q.cooldown > 0) { q.cooldown--; return; }
+
+    var before = q.scale;
+    if (median > q.target * 1.35 && q.scale > q.min) {
+      q.scale = Math.max(q.min, q.scale - 0.1);
+    } else if (median < q.target * 0.85 && q.scale < q.max) {
+      q.scale = Math.min(q.max, q.scale + 0.05);
+    }
+
+    if (q.scale !== before) {
+      renderer.setPixelRatio(basePixelRatio());
+      q.cooldown = 2;
+    }
   }
 
   /* ==========================================================
@@ -462,6 +517,8 @@ var Game = (function () {
 
     if (state === 'menu') return;
     if (state === 'paused' || state === 'results') { renderFrame(0); return; }
+
+    adaptQuality(frame);
 
     /* Consume real time in fixed steps. The cap covers a frame as slow
        as ~8 fps before the sim starts lagging real time; past that we
