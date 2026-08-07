@@ -37,7 +37,14 @@ var Karts = (function () {
 
   function cachedTex(key, make, rx, ry) {
     if (!texCache[key]) {
-      var t = Art.texture(make(), rx || 1, ry || 1);
+      /* `make` may repaint its canvas later, when an image file it
+         asked for arrives.  It gets a hook to flag the texture dirty;
+         that texture does not exist yet at call time, so the hook
+         reads it back out of the cache rather than closing over it. */
+      var canvas = make(function () {
+        if (texCache[key]) texCache[key].needsUpdate = true;
+      });
+      var t = Art.texture(canvas, rx || 1, ry || 1);
       t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
       texCache[key] = t;
     }
@@ -65,7 +72,7 @@ var Karts = (function () {
 
   function buildHead(m) {
     var group = new THREE.Group();
-    var faceTex = cachedTex('face:' + m.id, function () { return Art.face(m); });
+    var faceTex = cachedTex('face:' + m.id, function (dirty) { return Art.face(m, dirty); });
 
     if (m.head === 'box') {
       var backTex = cachedTex('back:' + m.id, function () { return Art.back(m); });
@@ -157,7 +164,7 @@ var Karts = (function () {
   function screenTexture(m) {
     return m.rider
       ? cachedTex('desktop', function () { return Art.desktopScreen(); })
-      : cachedTex('face:' + m.id, function () { return Art.face(m); });
+      : cachedTex('face:' + m.id, function (dirty) { return Art.face(m, dirty); });
   }
 
   var CHASSIS = {
@@ -287,7 +294,7 @@ var Karts = (function () {
 
     /* 2013 Mac Pro: the black cylinder, laid along the kart. */
     cylinder: function (g, m, mats) {
-      var skinTex = cachedTex('skin:' + m.id, function () { return Art.face(m); }, 1, 3);
+      var skinTex = cachedTex('skin:' + m.id, function (dirty) { return Art.face(m, dirty); }, 1, 3);
       var can = new THREE.Mesh(
         new THREE.CylinderGeometry(1.05, 1.05, 3.0, 32, 1, true),
         new THREE.MeshPhongMaterial({ map: skinTex, shininess: 110, specular: 0x555a66 })
@@ -342,7 +349,7 @@ var Karts = (function () {
       g.add(tray);
 
       /* a sheet mid-print, with the dogcow's own face on it */
-      var faceTex = cachedTex('face:' + m.id, function () { return Art.face(m); });
+      var faceTex = cachedTex('face:' + m.id, function (dirty) { return Art.face(m, dirty); });
       var sheet = new THREE.Mesh(
         new THREE.PlaneGeometry(1.3, 1.0),
         new THREE.MeshLambertMaterial({ map: faceTex, side: THREE.DoubleSide })

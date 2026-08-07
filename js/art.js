@@ -1,8 +1,13 @@
 /* ============================================================
-   Art — every texture in the game is painted into a canvas at
-   boot, so the whole thing runs from a folder with no image
-   downloads.  Also holds the mascot roster: their looks, their
-   colours and their handling ratings.
+   Art — the game's textures, plus the mascot roster: their looks,
+   their colours and their handling ratings.
+
+   Artwork comes from two places.  Image files under textures/ and
+   icons/ are used when they are there; everything also has a
+   canvas-painted version that stands in when a file is missing or
+   still in flight.  Adding art is therefore a matter of dropping a
+   file in the right folder — no code here needs to change, and
+   nothing blocks on the download.
    ============================================================ */
 
 var Art = (function () {
@@ -41,12 +46,12 @@ var Art = (function () {
   /* ==========================================================
      Photographic surface maps (textures/*.jpg).
 
-     These are the only files the game loads from disk.  Each one
-     has a canvas-drawn twin below, so if a file is missing — or
-     the page is opened straight off the filesystem, where some
-     browsers refuse the XHR — the game still renders correctly,
-     just flatter.  loadSurface() hands back the fallback canvas
-     texture immediately and swaps the image in once it arrives.
+     Each one has a canvas-drawn twin below, so if a file is
+     missing — or the page is opened straight off the filesystem,
+     where some browsers refuse the XHR — the game still renders
+     correctly, just flatter.  loadSurface() hands back the
+     fallback canvas texture immediately and swaps the image in
+     once it arrives.
      ========================================================== */
 
   var loader = new THREE.TextureLoader();
@@ -75,6 +80,51 @@ var Art = (function () {
 
     surfaceCache[key] = tex;
     return tex;
+  }
+
+  /* ==========================================================
+     External mascot icons (icons/*).
+
+     Drop a file named after a mascot id — icons/happy.svg,
+     icons/clarus.png — and it replaces that mascot's painted
+     portrait in the picker.  icons/<id>-face.png does the same for
+     the texture mapped onto the head in the race.
+
+     Nothing waits on these.  The painted art goes up immediately
+     and a file swaps itself in when it lands, so a missing or slow
+     icon costs nothing but the fallback staying on screen.  SVG is
+     tried first and scales to any display; PNG is the fallback.
+     ========================================================== */
+
+  var ICON_DIR = 'icons/';
+  var ICON_EXTS = ['svg', 'png'];
+
+  /* Try each extension in turn, calling back with the first that
+     decodes.  Silent when none of them exist — that is the normal
+     case for a mascot with no external art. */
+  function loadIcon(name, onLoad) {
+    var i = 0;
+    (function attempt() {
+      if (i >= ICON_EXTS.length) return;
+      var img = new Image();
+      var src = ICON_DIR + name + '.' + ICON_EXTS[i++];
+      img.onload = function () { onLoad(img); };
+      img.onerror = attempt;
+      /* an SVG without intrinsic dimensions still needs a size to
+         rasterise into; the draw call supplies it */
+      img.src = src;
+    })();
+  }
+
+  /* Draw `img` into a w x h box, preserving aspect and centring —
+     the same fit an <img> with object-fit: contain would give. */
+  function drawContained(ctx, img, w, h, pad) {
+    var iw = img.naturalWidth || img.width || w;
+    var ih = img.naturalHeight || img.height || h;
+    var box = 1 - (pad || 0) * 2;
+    var s = Math.min((w * box) / iw, (h * box) / ih);
+    var dw = iw * s, dh = ih * s;
+    ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
   }
 
   /* ---------- small canvas helpers ---------- */
@@ -1573,6 +1623,17 @@ var Art = (function () {
     }
     ctx.restore();
 
+    /* If there is a file for this mascot, it wins — repaint the canvas
+       with it once it arrives.  The painted art above is what the
+       player sees until then, and what they keep seeing if there is no
+       file at all. */
+    loadIcon(m.id, function (img) {
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = pool;
+      ctx.fillRect(0, 0, w, h);
+      drawContained(ctx, img, w, h, 0.08);
+    });
+
     return c;
   }
 
@@ -1597,7 +1658,20 @@ var Art = (function () {
 
     MASCOTS: MASCOTS,
     mascot: mascot,
-    face: function (m) { return paint(MASCOT_TEX, MASCOT_TEX, function (ctx, w) { FACE[m.id](ctx, w); }); },
+    /* The head texture in the race.  icons/<id>-face.png overrides it;
+       because the canvas is handed straight to a CanvasTexture, the
+       swap needs the caller to flag the texture dirty — hence the
+       `dirty` hook the kart builder passes in. */
+    face: function (m, dirty) {
+      var c = paint(MASCOT_TEX, MASCOT_TEX, function (ctx, w) { FACE[m.id](ctx, w); });
+      loadIcon(m.id + '-face', function (img) {
+        var ctx = c.getContext('2d');
+        ctx.clearRect(0, 0, MASCOT_TEX, MASCOT_TEX);
+        ctx.drawImage(img, 0, 0, MASCOT_TEX, MASCOT_TEX);
+        if (dirty) dirty();
+      });
+      return c;
+    },
     compactSide: compactSide,
     titleBar: titleBar,
     shellPanel: shellPanel,
