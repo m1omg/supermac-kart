@@ -463,52 +463,95 @@ var Art = (function () {
       sheen(ctx, 0, 0, S, S, S * 0.02, 0.16);
     },
 
-    /* The two-tone Finder face: one half in shadow, one in light. */
+    /* The Finder face.  The thing that makes it read as Finder rather
+       than as a bisected square is the seam: it drifts left on the way
+       down, jogs sideways at the bridge of the nose, then drifts back
+       right.  A straight split reads as two rectangles glued together.
+       Proportions follow the outline in tabler-icons (MIT), which gets
+       the seam, the dash eyes and the shallow smile right. */
     finder: function (ctx, S) {
-      var lg = ctx.createLinearGradient(0, 0, 0, S);
-      lg.addColorStop(0, '#3f86e6');
-      lg.addColorStop(1, '#22539f');
-      ctx.fillStyle = lg;
-      ctx.fillRect(0, 0, S / 2, S);
+      /* The seam, running top edge to bottom edge.  `move` starts a
+         fresh subpath; the region fills continue one they already
+         opened at a corner, and a moveTo there would break the
+         polygon and fill a wedge instead of a half. */
+      function seam(c, move) {
+        if (move) c.moveTo(S * 0.535, 0); else c.lineTo(S * 0.535, 0);
+        c.bezierCurveTo(S * 0.497, S * 0.19, S * 0.452, S * 0.35, S * 0.443, S * 0.565);
+        c.lineTo(S * 0.578, S * 0.565);
+        c.bezierCurveTo(S * 0.569, S * 0.75, S * 0.589, S * 0.885, S * 0.616, S);
+      }
 
+      var LIGHT = '#eef3fa', DARK = '#2f6fd0';
+
+      /* light half first, over the whole square */
       var rg = ctx.createLinearGradient(0, 0, 0, S);
       rg.addColorStop(0, '#ffffff');
-      rg.addColorStop(1, '#cfdcea');
+      rg.addColorStop(1, '#c8d6e8');
       ctx.fillStyle = rg;
-      ctx.fillRect(S / 2, 0, S / 2, S);
+      ctx.fillRect(0, 0, S, S);
 
-      /* soft seam so the halves meet rather than butt together */
-      var seam = ctx.createLinearGradient(S * 0.46, 0, S * 0.54, 0);
-      seam.addColorStop(0, 'rgba(0,0,0,0)');
-      seam.addColorStop(0.5, 'rgba(0,0,0,.18)');
-      seam.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = seam;
-      ctx.fillRect(S * 0.46, 0, S * 0.08, S);
+      /* dark half is everything left of the seam */
+      var lg = ctx.createLinearGradient(0, 0, 0, S);
+      lg.addColorStop(0, '#4b8cea');
+      lg.addColorStop(1, '#1f56a8');
+      ctx.fillStyle = lg;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      seam(ctx, false);
+      ctx.lineTo(0, S);
+      ctx.closePath();
+      ctx.fill();
 
-      var ex = S * 0.225, ey = S * 0.36, erx = S * 0.072, ery = S * 0.098;
-      ctx.fillStyle = '#eaf2fb';
-      ell(ctx, S * 0.5 - ex, ey, erx, ery); ctx.fill();
-      ctx.fillStyle = '#2b62b8';
-      ell(ctx, S * 0.5 + ex, ey, erx, ery); ctx.fill();
+      /* the seam itself, just dark enough to hold the two halves apart */
+      ctx.beginPath();
+      seam(ctx, true);
+      ctx.strokeStyle = 'rgba(12,32,66,.5)';
+      ctx.lineWidth = S * 0.014;
+      ctx.stroke();
 
-      /* catchlights — the detail that makes the face feel drawn */
-      ctx.fillStyle = 'rgba(255,255,255,.55)';
-      ell(ctx, S * 0.5 + ex - erx * 0.3, ey - ery * 0.35, erx * 0.26, ery * 0.26); ctx.fill();
-      ctx.fillStyle = 'rgba(0,0,0,.25)';
-      ell(ctx, S * 0.5 - ex + erx * 0.3, ey - ery * 0.35, erx * 0.26, ery * 0.26); ctx.fill();
+      /* eyes — short vertical dashes, one per half, each in the other
+         half's colour */
+      var ew = S * 0.058, eh = S * 0.115, ey = S * 0.235;
+      ctx.fillStyle = LIGHT;
+      rr(ctx, S * 0.245 - ew / 2, ey, ew, eh, ew / 2); ctx.fill();
+      ctx.fillStyle = DARK;
+      rr(ctx, S * 0.755 - ew / 2, ey, ew, eh, ew / 2); ctx.fill();
 
-      ctx.lineWidth = S * 0.058;
+      /* smile — one shallow curve that changes colour at the seam */
+      function smile(c) {
+        c.beginPath();
+        c.moveTo(S * 0.235, S * 0.695);
+        c.quadraticCurveTo(S * 0.5, S * 0.9, S * 0.765, S * 0.695);
+      }
+      ctx.lineWidth = S * 0.072;
       ctx.lineCap = 'round';
-      ctx.strokeStyle = '#eaf2fb';
-      ctx.beginPath();
-      ctx.arc(S / 2, S * 0.5, S * 0.26, 0.08 * Math.PI, 0.5 * Math.PI);
-      ctx.stroke();
-      ctx.strokeStyle = '#2b62b8';
-      ctx.beginPath();
-      ctx.arc(S / 2, S * 0.5, S * 0.26, 0.5 * Math.PI, 0.92 * Math.PI);
-      ctx.stroke();
 
-      vignette(ctx, 0, 0, S, S, 0.22);
+      ctx.save();                                   /* left of the seam */
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      seam(ctx, false);
+      ctx.lineTo(0, S);
+      ctx.closePath();
+      ctx.clip();
+      smile(ctx);
+      ctx.strokeStyle = LIGHT;
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.save();                                  /* right of the seam */
+      ctx.beginPath();
+      ctx.moveTo(S, 0);
+      seam(ctx, false);
+      ctx.lineTo(S, S);
+      ctx.closePath();
+      ctx.clip();
+      smile(ctx);
+      ctx.strokeStyle = DARK;
+      ctx.stroke();
+      ctx.restore();
+
+      vignette(ctx, 0, 0, S, S, 0.2);
+      sheen(ctx, 0, 0, S, S, S * 0.02, 0.14);
     },
 
     /* Wraps a sphere, so this is the unrolled hide: vertical rainbow
