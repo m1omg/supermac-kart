@@ -82,7 +82,7 @@ var Karts = (function () {
 
     } else if (m.head === 'sphere') {
       var sphere = new THREE.Mesh(
-        new THREE.SphereGeometry(0.95, 20, 14),
+        new THREE.SphereGeometry(0.95, 32, 22),
         new THREE.MeshLambertMaterial({ map: faceTex })
       );
       group.add(sphere);
@@ -103,7 +103,7 @@ var Karts = (function () {
         /* floppy ears */
         var earMat = new THREE.MeshLambertMaterial({ color: 0x1b1b1b });
         [-1, 1].forEach(function (s) {
-          var ear = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 8), earMat);
+          var ear = new THREE.Mesh(new THREE.SphereGeometry(0.42, 16, 12), earMat);
           ear.position.set(s * 0.85, 0.25, 0.05);
           ear.scale.set(0.45, 1.25, 0.7);
           ear.rotation.z = s * 0.5;
@@ -112,14 +112,14 @@ var Karts = (function () {
       }
       if (m.id === 'bomb') {
         var fuse = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.08, 0.1, 0.9, 6),
+          new THREE.CylinderGeometry(0.08, 0.1, 0.9, 10),
           new THREE.MeshLambertMaterial({ color: 0x8a6a3a })
         );
         fuse.position.set(0.3, 1.1, -0.15);
         fuse.rotation.z = -0.5;
         group.add(fuse);
         var spark = new THREE.Mesh(
-          new THREE.SphereGeometry(0.18, 8, 6),
+          new THREE.SphereGeometry(0.18, 12, 8),
           new THREE.MeshBasicMaterial({ color: 0xffd34d })
         );
         spark.position.set(0.62, 1.5, -0.15);
@@ -129,12 +129,12 @@ var Karts = (function () {
 
     } else { /* cylinder — the Mac Pro */
       var cyl = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.72, 0.78, 2, 20, 1, true),
+        new THREE.CylinderGeometry(0.72, 0.78, 2, 32, 1, true),
         new THREE.MeshLambertMaterial({ map: faceTex })
       );
       group.add(cyl);
       var throat = new THREE.Mesh(
-        new THREE.CircleGeometry(0.7, 20),
+        new THREE.CircleGeometry(0.7, 32),
         new THREE.MeshBasicMaterial({ color: 0x5abeff })
       );
       throat.rotation.x = -Math.PI / 2;
@@ -203,7 +203,7 @@ var Karts = (function () {
 
       /* opaque inner body so the shell has something to sit over */
       var core = new THREE.Mesh(
-        new THREE.SphereGeometry(1.15, 18, 14),
+        new THREE.SphereGeometry(1.15, 28, 20),
         new THREE.MeshLambertMaterial({ color: 0xf2f2ec })
       );
       core.scale.set(1, 0.92, 1.35);
@@ -211,7 +211,7 @@ var Karts = (function () {
       g.add(core);
 
       var shell = new THREE.Mesh(
-        new THREE.SphereGeometry(1.3, 20, 16),
+        new THREE.SphereGeometry(1.3, 32, 24),
         new THREE.MeshPhongMaterial({
           map: shellTex, transparent: true, opacity: 0.62,
           shininess: 90, specular: 0x9fdfff, depthWrite: false
@@ -224,7 +224,7 @@ var Karts = (function () {
 
       /* CRT face */
       var screen = new THREE.Mesh(
-        new THREE.CircleGeometry(0.92, 24),
+        new THREE.CircleGeometry(0.92, 32),
         new THREE.MeshBasicMaterial({ map: screenTexture(m) })
       );
       screen.position.set(0, 1.3, 1.62);
@@ -232,7 +232,7 @@ var Karts = (function () {
 
       /* the iMac's carry handle */
       var handle = new THREE.Mesh(
-        new THREE.TorusGeometry(0.34, 0.09, 8, 16, Math.PI),
+        new THREE.TorusGeometry(0.34, 0.09, 10, 24, Math.PI),
         new THREE.MeshPhongMaterial({
           color: m.color, transparent: true, opacity: 0.75, shininess: 80
         })
@@ -289,7 +289,7 @@ var Karts = (function () {
     cylinder: function (g, m, mats) {
       var skinTex = cachedTex('skin:' + m.id, function () { return Art.face(m); }, 1, 3);
       var can = new THREE.Mesh(
-        new THREE.CylinderGeometry(1.05, 1.05, 3.0, 24, 1, true),
+        new THREE.CylinderGeometry(1.05, 1.05, 3.0, 32, 1, true),
         new THREE.MeshPhongMaterial({ map: skinTex, shininess: 110, specular: 0x555a66 })
       );
       can.rotation.x = Math.PI / 2;
@@ -297,12 +297,12 @@ var Karts = (function () {
       g.add(can);
 
       /* closed nose, open glowing exhaust throat at the back */
-      var nose = new THREE.Mesh(new THREE.CircleGeometry(1.05, 24), mats.dark);
+      var nose = new THREE.Mesh(new THREE.CircleGeometry(1.05, 32), mats.dark);
       nose.position.set(0, 1.2, 1.3);
       g.add(nose);
 
       var throat = new THREE.Mesh(
-        new THREE.CircleGeometry(1.02, 24),
+        new THREE.CircleGeometry(1.02, 32),
         new THREE.MeshBasicMaterial({ color: 0x0b0b10 })
       );
       throat.position.set(0, 1.2, -1.7);
@@ -424,8 +424,8 @@ var Karts = (function () {
     }
 
     /* wheels */
-    var wheelGeo = new THREE.CylinderGeometry(0.62, 0.62, 0.55, 14);
-    var rimGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.58, 10);
+    var wheelGeo = new THREE.CylinderGeometry(0.62, 0.62, 0.55, 22);
+    var rimGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.58, 14);
     var wheels = { front: [], rear: [] };
     [[-1.35, 1.5, 'front'], [1.35, 1.5, 'front'], [-1.4, -1.6, 'rear'], [1.4, -1.6, 'rear']]
       .forEach(function (w) {
