@@ -44,18 +44,34 @@ seeing the painted version. A file that 404s is not an error.
 
 ## Licensing
 
-These are yours to choose. Note that the classic Apple mascots — Happy
-Mac, Sad Mac, Clarus, the Finder face, the spinning beachball, the
-System Error bomb — are Apple's copyrighted artwork, and most copies
-circulating online are either unlicensed or marked non-free, which
-means they cannot be redistributed in a public repo. Recreations are
-not automatically clear either: a pixel-perfect replica of a
-copyrighted icon is a derivative work no matter who redrew it. Whatever
-you add here, record where it came from and under what licence in this
-file.
+Read this before adding or redistributing anything here.
+
+The classic Apple mascots — Happy Mac, Sad Mac, Clarus, the Finder
+face, the spinning beachball, the System Error bomb — are Apple's
+copyrighted artwork. Most copies circulating online are either
+unlicensed or marked non-free. Recreations are not automatically clear
+either: a pixel-perfect replica of a copyrighted icon is a derivative
+work no matter who redrew it.
+
+The files currently here come from a repository that carries **no
+licence at all**, which under copyright's default means all rights
+reserved — by the author of the replicas, on top of Apple's rights in
+the originals. They were added deliberately, with that understood.
+Anyone forking or redistributing this project should make their own
+call rather than assuming these are cleared.
 
 ### Provenance
 
 | File | Source | Licence |
 | --- | --- | --- |
-| _(none yet)_ | | |
+| `happy.svg` | [thomasareed/Classic-Mac-icons](https://github.com/thomasareed/Classic-Mac-icons) — `svg/Happy Mac.svg` | none stated (all rights reserved) |
+| `sad.svg` | [thomasareed/Classic-Mac-icons](https://github.com/thomasareed/Classic-Mac-icons) — `svg/Sad Mac.svg` | none stated (all rights reserved) |
+| `clarus.svg` | [thomasareed/Classic-Mac-icons](https://github.com/thomasareed/Classic-Mac-icons) — `svg/Dogcow.svg` | none stated (all rights reserved) |
+| `bomb.svg` | [thomasareed/Classic-Mac-icons](https://github.com/thomasareed/Classic-Mac-icons) — `svg/bomb.svg` | none stated (all rights reserved) |
+
+`beachball`, `bondi`, `finder` and `trashcan` have no file here and use
+the painted art in `js/art.js`. That set is classic-era only, so it has
+no spinning beachball, no iMac G3 and no Finder face. It does have a
+`Trash.svg`, but that is a literal wastebasket and this mascot is the
+2013 cylindrical Mac Pro — using it would put an icon in the picker
+that disagrees with the model on track.

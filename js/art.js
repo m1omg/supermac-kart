@@ -1631,7 +1631,7 @@ var Art = (function () {
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = pool;
       ctx.fillRect(0, 0, w, h);
-      drawContained(ctx, img, w, h, 0.08);
+      drawContained(ctx, img, w, h, 0.02);
     });
 
     return c;
