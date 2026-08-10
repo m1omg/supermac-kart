@@ -26,7 +26,6 @@ var World = (function () {
     var col = o.tint ? new Float32Array(rings * 2 * 3) : null;
     var idx = [];
 
-    var rnd = Util.rng(o.seed || 1);
     var vPer = o.vPerUnit || 0.05;
 
     /* Emit edge 0 at the smaller offset and edge 1 at the larger one.
@@ -65,7 +64,13 @@ var World = (function () {
            cantilevering out into space on the hilly circuits */
         var flat = e === 0 ? loFlat : hiFlat;
         if (flat > 0) {
-          var bumpy = o.baseY + (rnd() - 0.5) * (o.noise || 0);
+          /* The terrain is a smooth position function — Util.roll —
+             not per-vertex randomness.  Because it depends only on
+             (x, z) every ribbon, the ground plane and track.vergeY
+             evaluate the same value at the same spot, so shared edges
+             meet flush instead of tearing, and the kart rides the
+             exact height the player sees. */
+          var bumpy = o.baseY + (o.heaveAmp || 0) * Util.roll(x, z);
           y = y * (1 - flat) + bumpy * flat;
         }
 
@@ -349,8 +354,22 @@ var World = (function () {
        a hole in the world. */
     var terrainTint = theme.night ? 0xcfe8d6 : 0xffffff;
     var groundTex = Art.loadSurface(TERRAIN, Art.grass(theme), 9000 / 7, 9000 / 7);
+    /* Displace the field with the same roll the verges blend toward.
+       The outermost verge now ends at `baseY + Util.ROLL * roll` exactly,
+       so the field carries that surface on — no rim, no z-fight, no shelf
+       where the built terrain and the plane meet.  The small 0.85 offset
+       (plane base sits at baseY - 1) keeps the plane a hair below the
+       verge edge instead of coincident with it. */
+    var GROUND_SEG = 192;
+    var groundGeo = new THREE.PlaneGeometry(9000, 9000, GROUND_SEG, GROUND_SEG);
+    var gp = groundGeo.attributes.position;
+    for (var vi = 0; vi < gp.count; vi++) {
+      var gx = gp.getX(vi), gz = -gp.getY(vi);
+      gp.setZ(vi, Util.ROLL * Util.roll(gx, gz) + 0.85);
+    }
+    groundGeo.computeVertexNormals();
     var ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(9000, 9000),
+      groundGeo,
       new THREE.MeshLambertMaterial({ map: groundTex, color: terrainTint })
     );
     ground.name = 'ground';
@@ -404,7 +423,7 @@ var World = (function () {
       var near = ribbon(track, {
         inner: side * (hw + kw + BARRIER), outer: side * (hw + kw + 26),
         innerLift: -0.55, outerLift: -2.2, tint: 0.11,
-        outerFlatten: 0.35, baseY: baseY, noise: 1.2,
+        outerFlatten: 0.35, baseY: baseY, heaveAmp: Util.ROLL,
         uPerUnit: 1 / GRASS_TILE, vPerUnit: 1 / GRASS_TILE, seed: 31 + side
       });
       var nearMesh = new THREE.Mesh(near, vergeMat);
@@ -414,7 +433,12 @@ var World = (function () {
       var far = ribbon(track, {
         inner: side * (hw + kw + 26), outer: side * (hw + kw + 120),
         innerLift: -2.2, outerLift: -6, tint: 0.13,
-        innerFlatten: 0.35, outerFlatten: 0.92, baseY: baseY, noise: 6,
+        /* inner 0.35 matches the near ribbon's outer edge (same edge
+           geometrically, same blend, same roll) so the two ribbons stay
+           watertight down their shared seam; outer 1.0 lands exactly on
+           the ground-plane surface, so the field continues the verge
+           with no rim.  All of them share one amplitude. */
+        innerFlatten: 0.35, outerFlatten: 1.0, baseY: baseY, heaveAmp: Util.ROLL,
         uPerUnit: 1 / GRASS_TILE, vPerUnit: 1 / GRASS_TILE, seed: 57 + side
       });
       var farMesh = new THREE.Mesh(far, vergeMat);

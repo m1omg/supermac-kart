@@ -386,13 +386,18 @@ var Tracks = (function () {
      the kerb edge.  The first span is the gravel runoff (its outer edge
      is exactly where the barrier stands), then grass falling away to
      the surrounding terrain.  world.js builds its ribbons from these
-     same numbers, so what you drive on is what you see. */
+     same numbers, so what you drive on is what you see.  Every flat
+     value blends toward the surrounding terrain, which carries the
+     smooth roll: baseY + Util.ROLL * Util.roll(x, z) (see vergeY below
+     and world.js) — so the far edge flat = 1 meets that surface
+     exactly, and the shared edge at d:26 is the same 0.35 on both
+     ribbons, keeping the whole verge watertight. */
   function vergeProfile(runoff) {
     return [
       { d: 0,       lift: -0.1,  flat: 0    },
       { d: runoff,  lift: -0.55, flat: 0    },
       { d: 26,      lift: -2.2,  flat: 0.35 },
-      { d: 120,     lift: -6,    flat: 0.92 }
+      { d: 120,     lift: -6,    flat: 1    }
     ];
   }
 
@@ -406,9 +411,17 @@ var Tracks = (function () {
     var baseY = this.baseY;
     var VERGE = this._verge || (this._verge = vergeProfile(this.runoff));
 
+    /* Mirrors the ribbon builder in world.js exactly: the horizontal
+       position keeps the frame's lateral lift (banking) so the roll is
+       sampled at the same point the mesh uses, then the same
+       `y*(1 - flat) + (baseY + ROLL*roll)*flat` blend.  Only this
+       single copy of the ground height can stay in step with what the
+       player actually sees — karts, props and grandstands all read it. */
     function at(cp) {
+      var ox = sample.pos.x + sample.right.x * (sign * (edge + cp.d)) + sample.up.x * cp.lift;
+      var oz = sample.pos.z + sample.right.z * (sign * (edge + cp.d)) + sample.up.z * cp.lift;
       var y = sample.pos.y + sample.right.y * (sign * (edge + cp.d)) + sample.up.y * cp.lift;
-      return y * (1 - cp.flat) + baseY * cp.flat;
+      return y * (1 - cp.flat) + (baseY + Util.ROLL * Util.roll(ox, oz)) * cp.flat;
     }
 
     for (var i = 0; i < VERGE.length - 1; i++) {

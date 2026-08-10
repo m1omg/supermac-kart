@@ -47,6 +47,25 @@ var Util = (function () {
     return !((max1 < min2) || (min1 > max2));
   }
 
+  /* Smooth, deterministic terrain roll — a sum of low-frequency waves,
+     roughly in [-1, 1].  The off-track verges, the ground plane and
+     track.vergeY all blend toward `baseY + ROLL * roll(x, z)`, so every
+     surface agrees at every seam: position-based (never per-vertex
+     randomness), which is what keeps adjacent ribbons from tearing and
+     the kart/terrain from disagreeing.  Amplitude is ROLL.
+
+     Wavelengths stay >= ~370 units on purpose: rolling countryside,
+     not noise.  A high-frequency term is exactly what reads as lumpy
+     on the verges (a ~100-unit ripple) and what a coarse ground grid
+     cannot reproduce along its junction with the far verge, so the
+     bandwidth is deliberately kept low. */
+  var ROLL = 4;
+  function roll(x, z) {
+    return 0.55 * Math.sin(x * 0.013 + z * 0.021)
+         + 0.27 * Math.sin(x * 0.009 - z * 0.017 + 1.3)
+         + 0.18 * Math.cos((x + z) * 0.005 + 0.7);
+  }
+
   /* Deterministic PRNG so every "predefined" track is byte-identical
      on every load — scenery included. */
   function rng(seed) {
@@ -109,6 +128,8 @@ var Util = (function () {
     increase: increase,
     overlap: overlap,
     rng: rng,
+    ROLL: ROLL,
+    roll: roll,
     formatTime: formatTime,
     ordinal: ordinal,
     rgba: rgba,
