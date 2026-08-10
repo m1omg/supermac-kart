@@ -125,7 +125,8 @@ var Game = (function () {
   var QUALITY = {
     target: 1 / 60,
     scale: 1,
-    min: 0.6,
+    min: 0.75,              /* never drop below 75% — below that the ground
+                               and surfaces read as flat and untextured */
     max: 1,
     aniso: 2,               /* index into ANISO_STEPS; set at boot */
     anisoMax: 2,
@@ -154,7 +155,7 @@ var Game = (function () {
     var scale = q.scale, aniso = q.aniso;
 
     if (median > q.target * 1.35) {
-      if (q.aniso > 0) q.aniso--;                                  /* filtering first */
+      if (q.aniso > 1) q.aniso--;                                  /* filtering first (floor 2x) */
       else if (q.scale > q.min) q.scale = Math.max(q.min, q.scale - 0.1);
     } else if (median < q.target * 0.85) {
       if (q.scale < q.max) q.scale = Math.min(q.max, q.scale + 0.05);
@@ -708,13 +709,19 @@ var Game = (function () {
     var follow = 1 - Math.exp(-7.5 * dt);
     camera.position.lerp(camPos, follow);
 
-    /* shake from contact and from running wide onto the dirt */
-    var rough = (!player.onRoad ? 0.28 : 0) + shake;
+    /* Shake from contact and from running wide onto the dirt.
+       This is a smooth low-frequency rumble, not per-frame random
+       jitter: random offsets on every axis smear the whole scene
+       edge-to-edge and read as motion blur at speed, and they get
+       worse the faster the display refreshes.  A few fixed sine
+       waves still rattle the camera convincingly but stay readable. */
+    var rough = (!player.onRoad ? 0.12 : 0) + shake;
     if (rough > 0.001) {
-      var amp = rough * 0.45;
-      camera.position.x += (Math.random() - 0.5) * amp;
-      camera.position.y += (Math.random() - 0.5) * amp;
-      camera.position.z += (Math.random() - 0.5) * amp;
+      var amp = rough * 0.3;
+      var t = clockTime * (2 * Math.PI);
+      camera.position.x += Math.sin(t * 3.4) * amp;
+      camera.position.y += (Math.sin(t * 2.7) * 0.6 + Math.sin(t * 4.6) * 0.4) * amp;
+      camera.position.z += Math.sin(t * 3.1 + 1.3) * amp;
     }
     shake = Math.max(0, shake - dt * 1.6);
 
@@ -722,7 +729,7 @@ var Game = (function () {
 
     /* speed and nitro widen the lens */
     var frac = THREE.MathUtils.clamp(player.speed / player.maxSpeed, 0, 1.3);
-    var targetFov = mode.fov + frac * 7 + (player.burning ? 9 : 0);
+    var targetFov = mode.fov + frac * 4 + (player.burning ? 6 : 0);
     camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-5 * dt));
     camera.updateProjectionMatrix();
   }
