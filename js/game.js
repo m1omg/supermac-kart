@@ -448,6 +448,10 @@ var Game = (function () {
         var muted = Sound.toggleMute();
         popup(muted ? 'SOUND OFF' : 'SOUND ON');
       }
+      if (e.code === 'KeyT') {
+        Art.setTextures(!Art.texturesActive());
+        popup(Art.texturesActive() ? 'TEXTURES ON' : 'TEXTURES OFF');
+      }
       if (e.code === 'KeyC' && (state === 'racing' || state === 'countdown')) {
         camMode = (camMode + 1) % CAM_MODES.length;
         popup('CAMERA · ' + CAM_MODES[camMode].name);

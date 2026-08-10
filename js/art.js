@@ -9,6 +9,14 @@ var Art = (function () {
 
   var maxAnisotropy = 1;
 
+  /* Texture / no-texture switch.  When textures are turned off every
+     loaded surface swaps back to its painted flat-colour fallback, so
+     the game reads as clean flat racing stripes instead of photo ground.
+     Toggling back on restores the photographic map (or waits for it,
+     exactly like first boot).  The swap only touches the shared surface
+     images — nothing is re-fetched and nothing gets disposed. */
+  var texturesOn = true;
+
   /* Every texture handed out is kept here so the anisotropy level can be
      re-applied later.  Filtering the road and the terrain at a grazing
      angle is the single most expensive thing the fragment shader does,
@@ -89,9 +97,14 @@ var Art = (function () {
         img.wrapS = img.wrapT = THREE.RepeatWrapping;
         img.repeat.set(s.rx || 1, s.ry || 1);
         img.anisotropy = maxAnisotropy;
-        s.tex.image = img.image;
-        s.tex.needsUpdate = true;
+        s.photo = img.image;
         s.done = true;
+        /* only surface the photo if the game is currently showing textures — a
+           no-texture race must not be repainted underneath */
+        if (texturesOn) {
+          s.tex.image = img.image;
+          s.tex.needsUpdate = true;
+        }
       },
       undefined,
       function () { /* keep the painted fallback; a later pass may still land it */ }
@@ -108,7 +121,8 @@ var Art = (function () {
        disposeScene in game.js. */
     tex.userData.shared = true;
 
-    var s = { tex: tex, name: name, rx: rx, ry: ry, done: false };
+    var s = { tex: tex, name: name, rx: rx, ry: ry, done: false,
+              flat: fallbackCanvas, photo: null };
     surfaces.push(s);
     applyImage(s);
 
@@ -128,6 +142,24 @@ var Art = (function () {
       if (!surfaces[i].done) applyImage(surfaces[i]);
     }
   }
+
+  /* Flip every shared surface between its photographic map and its flat
+     painted twin.  Cheap: just re-points the texture's image, the way
+     applyImage already does.  off=true keeps the flat canvases; off=
+     false restores the photos that have landed so far.  The ones still
+     loading when textures are off surface the moment they arrive (see
+     applyImage), so late bundles don't paint under a "no texture" race. */
+  function setTextures(on) {
+    if (on === texturesOn) return;
+    texturesOn = on;
+    for (var i = 0; i < surfaces.length; i++) {
+      var s = surfaces[i];
+      s.tex.image = on ? (s.photo || s.flat) : s.flat;
+      s.tex.needsUpdate = true;
+    }
+  }
+
+  function texturesActive() { return texturesOn; }
 
   /* Watch for the async bundle to arrive and upgrade on the spot.  If it
      never shows (bundle deleted), give up after a few seconds and leave
@@ -1038,6 +1070,8 @@ var Art = (function () {
     texture: texture,
     loadSurface: loadSurface,
     refreshSurfaces: refreshSurfaces,
+    setTextures: setTextures,
+    texturesActive: texturesActive,
     paint: paint,
     canvas: C,
     roundRect: rr,
