@@ -14,7 +14,8 @@ var Art = (function () {
      the game reads as clean flat racing stripes instead of photo ground.
      Toggling back on restores the photographic map (or waits for it,
      exactly like first boot).  The swap only touches the shared surface
-     images — nothing is re-fetched and nothing gets disposed. */
+     images — nothing is re-fetched, and every map that has landed stays
+     in memory ready to go back up. */
   var texturesOn = true;
 
   /* Every texture handed out is kept here so the anisotropy level can be
@@ -86,6 +87,42 @@ var Art = (function () {
     return 'textures/' + name + '.jpg';
   }
 
+  /* Point a live surface at a different image.
+
+     Assigning `.image` and setting needsUpdate is only half the job, and
+     getting the other half wrong is invisible in the console but total on
+     screen.  A WebGL2 texture is given *immutable* storage: three.js sizes
+     it with texStorage2D on the first upload — here the 8x8 painted
+     fallback — and every upload after that is a texSubImage2D into that
+     fixed box.  Handing it the 512x512 photo later therefore fails with
+     GL_INVALID_VALUE ("offset overflows texture dimensions"), the pixels
+     are dropped on the floor, and the surface keeps showing flat paint for
+     the life of the page.  Disposing releases that storage, so the next
+     frame allocates it again at the new size and the map appears.
+
+     Going the other way (photo -> small fallback, the T key) is worse than
+     a dropped upload: the little canvas *fits*, so it lands in the corner
+     of the big texture and leaves the rest of the photo standing.  Same
+     cure, so the size check covers both directions.
+
+     One thing this cannot survive: never `clone()` a surface texture to
+     get a second repeat out of it.  A clone shares the original's Source,
+     and the repeat is not part of the key the renderer caches GPU textures
+     under, so the two would share one allocation that the dispose below
+     can no longer free — and the flat-paint bug comes back silently.  Ask
+     loadSurface for the repeat you want instead; it already keys on it. */
+  function swapImage(s, img) {
+    if (!img || s.tex.image === img) return;
+    var cur = s.tex.image;
+    if (!cur || cur.width !== img.width || cur.height !== img.height) {
+      /* frees the GPU storage only — the texture object stays valid and
+         every material still pointing at it re-uploads on the next frame */
+      s.tex.dispose();
+    }
+    s.tex.image = img;
+    s.tex.needsUpdate = true;
+  }
+
   /* Load the best source available *right now* into an existing texture.
      Called once when the surface is created and again by refreshSurfaces
      if it was still on its fallback when the data-URI bundle arrived. */
@@ -101,10 +138,7 @@ var Art = (function () {
         s.done = true;
         /* only surface the photo if the game is currently showing textures — a
            no-texture race must not be repainted underneath */
-        if (texturesOn) {
-          s.tex.image = img.image;
-          s.tex.needsUpdate = true;
-        }
+        if (texturesOn) swapImage(s, img.image);
       },
       undefined,
       function () { /* keep the painted fallback; a later pass may still land it */ }
@@ -144,8 +178,8 @@ var Art = (function () {
   }
 
   /* Flip every shared surface between its photographic map and its flat
-     painted twin.  Cheap: just re-points the texture's image, the way
-     applyImage already does.  off=true keeps the flat canvases; off=
+     painted twin.  Cheap: re-points the texture's image through swapImage,
+     the same path applyImage uses.  off=true keeps the flat canvases; off=
      false restores the photos that have landed so far.  The ones still
      loading when textures are off surface the moment they arrive (see
      applyImage), so late bundles don't paint under a "no texture" race. */
@@ -154,8 +188,7 @@ var Art = (function () {
     texturesOn = on;
     for (var i = 0; i < surfaces.length; i++) {
       var s = surfaces[i];
-      s.tex.image = on ? (s.photo || s.flat) : s.flat;
-      s.tex.needsUpdate = true;
+      swapImage(s, on ? (s.photo || s.flat) : s.flat);
     }
   }
 
