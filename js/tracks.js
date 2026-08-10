@@ -252,9 +252,9 @@ var Tracks = (function () {
     this.theme = THEMES[def.theme];
     this.halfWidth = def.width / 2;
     this.kerbWidth = 2.6;
-    /* Runoff past the kerb before the invisible barrier. Physics and the
-       scenery placement both read this, so nothing solid is ever put
-       somewhere a kart is allowed to reach. */
+    /* Width of the gravel runoff past the kerb.  Scenery placement reads
+       this — every solid prop is set down beyond it — and world.js builds
+       the gravel apron to match, so what you see is what you drive on. */
     this.runoff = 9;
 
     this.curve = buildCurve(def);
@@ -273,6 +273,32 @@ var Tracks = (function () {
     this.minY = minY;
     this.maxY = maxY;
     this.baseY = minY - 14;          /* the surrounding terrain plane */
+
+    /* How far past the kerb a kart may roam before the invisible barrier
+       turns it back.  The old game walled you in at the gravel's edge
+       (runoff, ~9 units), so you could never really leave the road; this
+       opens the grass verge up instead.  It is chosen per track rather
+       than fixed, because the verge falls away toward the surrounding
+       terrain at wildly different rates — gentle on the coast, cliff-like
+       on hilly Silicon Ridge — and a single distance would either pen the
+       flat tracks in or drop the steep ones off a plunge no one wants to
+       drive down.  So we walk outward and stop where the verge has fallen
+       about as far as is still pleasant to drive on, capped well inside
+       the ~120-unit built terrain so there is always ground underfoot. */
+    this.barrier = (function (self) {
+      var edge = self.halfWidth + self.kerbWidth;
+      var DROP_CAP = 30, D_MIN = 18, D_MAX = 70, STRIDE = Math.max(1, (self.count / 48) | 0);
+      for (var d = D_MAX; d >= D_MIN; d -= 2) {
+        var worst = 0;
+        for (var i = 0; i < self.count; i += STRIDE) {
+          var s = self.samples[i];
+          var drop = self.vergeY(s, edge) - self.vergeY(s, edge + d);
+          if (drop > worst) worst = drop;
+        }
+        if (worst <= DROP_CAP) return d;
+      }
+      return D_MIN;
+    })(this);
 
     this.boosts = def.boosts.map(function (f) {
       return { index: Math.floor(f * s.count) % s.count, length: 16 };

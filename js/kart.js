@@ -823,7 +823,10 @@ var Karts = (function () {
     /* ---- barriers ---- */
     var loc2 = track.locate(this.pos, this.sampleIdx);
     this.sampleIdx = loc2.index;
-    var wall = track.halfWidth + track.kerbWidth + track.runoff;
+    /* The barrier sits far out in the grass, not at the gravel's edge, so
+       a kart can leave the road and roam the verge before being turned
+       back — see track.barrier. */
+    var wall = track.halfWidth + track.kerbWidth + track.barrier;
     this.hitWall = false;
     if (Math.abs(loc2.offset) > wall) {
       var over = Math.abs(loc2.offset) - wall;
