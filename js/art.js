@@ -39,27 +39,54 @@ var Art = (function () {
   }
 
   /* ==========================================================
-     Photographic surface maps (textures/*.jpg).
+     Photographic surface maps.
 
-     These are the only files the game loads from disk.  Each one
-     has a canvas-drawn twin below, so if a file is missing — or
-     the page is opened straight off the filesystem, where some
-     browsers refuse the XHR — the game still renders correctly,
-     just flatter.  loadSurface() hands back the fallback canvas
-     texture immediately and swaps the image in once it arrives.
+     The maps normally come from js/textures.js, which carries each
+     JPEG as a data: URI.  That looks wasteful next to fetching
+     textures/*.jpg, and it is by about a third — but it is the only
+     form that survives all three ways the game gets played.
+
+     Over file:// the fetched version cannot work: three.js requests
+     images with crossOrigin="anonymous", and a page with an opaque
+     origin can never satisfy that check, so every map fails and the
+     game falls back to flat colour.  Data URIs make no request, carry
+     no origin, and cannot be blocked, so they behave the same whether
+     the game is served from GitHub Pages or double-clicked out of a
+     folder — and the maps are up before the first frame instead of
+     arriving mid-race.
+
+     If js/textures.js is missing the loader falls back to the .jpg
+     files, and if those fail too the canvas-painted twin below stays,
+     so the game still renders correctly, just flatter.
      ========================================================== */
 
   var loader = new THREE.TextureLoader();
+  /* No CORS handshake to attempt: data URIs do not need one, and asking
+     for one over file:// is what breaks the fetched maps in the first
+     place.  Same-origin .jpg files do not need it either. */
+  loader.setCrossOrigin(null);
+
   var surfaceCache = {};
+
+  function surfaceURL(name) {
+    if (typeof TextureData !== 'undefined' && TextureData[name]) {
+      return TextureData[name];
+    }
+    return 'textures/' + name + '.jpg';
+  }
 
   function loadSurface(name, fallbackCanvas, rx, ry) {
     var key = name + '|' + rx + '|' + ry;
     if (surfaceCache[key]) return surfaceCache[key];
 
     var tex = texture(fallbackCanvas, rx, ry);
+    /* Held in surfaceCache for the life of the page and shared by every
+       track, so it must outlive the scene that first used it — see
+       disposeScene in game.js. */
+    tex.userData.shared = true;
 
     loader.load(
-      'textures/' + name + '.jpg',
+      surfaceURL(name),
       function (img) {
         img.colorSpace = THREE.SRGBColorSpace;
         img.wrapS = img.wrapT = THREE.RepeatWrapping;
@@ -70,7 +97,10 @@ var Art = (function () {
         tex.needsUpdate = true;
       },
       undefined,
-      function () { /* keep the canvas fallback */ }
+      function () {
+        console.warn('SuperMac Kart: surface map "' + name +
+                     '" did not load; using the painted fallback.');
+      }
     );
 
     surfaceCache[key] = tex;

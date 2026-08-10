@@ -39,6 +39,9 @@ var Karts = (function () {
     if (!texCache[key]) {
       var t = Art.texture(make(), rx || 1, ry || 1);
       t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+      /* kept for the life of the page, so the next race's teardown must
+         leave it alone — see disposeScene in game.js */
+      t.userData.shared = true;
       texCache[key] = t;
     }
     return texCache[key];

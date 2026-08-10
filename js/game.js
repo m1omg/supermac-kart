@@ -401,7 +401,12 @@ var Game = (function () {
       if (obj.material) {
         var mats = Array.isArray(obj.material) ? obj.material : [obj.material];
         mats.forEach(function (m) {
-          if (m.map) m.map.dispose();
+          /* Surface maps and mascot faces are cached by Art/Karts and
+             reused by the next race, so freeing them here would throw
+             away pixels the game still needs — including maps that have
+             already been swapped in from js/textures.js.  Only maps
+             built for this one scene are ours to release. */
+          if (m.map && !m.map.userData.shared) m.map.dispose();
           m.dispose();
         });
       }

@@ -20,10 +20,18 @@ in `textures/` ship with the game, and every mascot, prop and UI element
 is drawn into a canvas at load time. Nothing is fetched from the network,
 so it works offline.
 
-Opening `index.html` straight off the filesystem works too: some browsers
-block the texture XHR over `file://`, and the game falls back to its
-canvas-drawn surfaces automatically — flatter, but fully playable and
-error-free. Serving the folder gets you the photographic surfaces.
+Opening `index.html` straight off the filesystem works too, textures and
+all. The surface maps are carried in `js/textures.js` as data: URIs
+rather than fetched from `textures/`, because a fetched map cannot work
+over `file://` — three.js requests images with `crossOrigin="anonymous"`,
+which a page with an opaque origin can never satisfy, and a browser that
+did hand the pixels over would then refuse to upload them to WebGL as
+cross-origin. A data: URI makes no request and has no origin, so the
+same file works from a folder, from a local server and from GitHub Pages
+alike, with the maps up before the first frame instead of arriving
+mid-race. If `js/textures.js` is missing the loader falls back to the
+`.jpg` files, and if those fail the canvas-drawn surfaces stay — flatter,
+but fully playable.
 
 ## Controls
 
@@ -126,6 +134,14 @@ and saved as JPEG.
 `asphalt` · `grass` · `dirt` · `rock` · `concrete` · `bark` · `foliage` ·
 `rubber` · `beige_plastic` · `dark_metal` · `circuit_board`
 
+`textures/` stays the source of truth; `scripts/embed_textures.py` bakes
+it into `js/textures.js`, which is what the game actually reads. Rerun it
+after changing any map:
+
+```bash
+python3 scripts/embed_textures.py
+```
+
 Every surface in the world is mapped: road, kerb runoff, verges, cliffs,
 tree trunks and canopies, cones, monitors, floppies, server racks,
 grandstand concrete and roof steel, and on the karts themselves the
@@ -206,12 +222,14 @@ index.html        page shell + HUD markup
 css/style.css     HUD, menus, touch controls
 js/util.js        maths helpers, seeded PRNG, formatting
 js/art.js         every texture + the mascot roster (canvas-generated)
+js/textures.js    generated: the surface maps as data: URIs
 js/tracks.js      circuit definitions, centreline sampling, banking, minimap
 js/world.js       scene assembly: road ribbon, kerbs, terrain, sky, scenery
 js/kart.js        kart mesh, arcade driving model, AI driver
 js/audio.js       synthesised engine, nitro roar and UI sounds (WebAudio)
 js/game.js        boot, menus, fixed-step race loop, HUD, results
 vendor/three.js   three.js r158
-textures/         generated surface maps (with canvas fallbacks)
-scripts/          texture post-processing
+textures/         generated surface maps (source for js/textures.js)
+scripts/          texture post-processing + embedding
+.nojekyll         stops GitHub Pages running the folder through Jekyll
 ```
