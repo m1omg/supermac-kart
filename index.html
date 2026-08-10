@@ -106,9 +106,17 @@
 </div>
 
 <script src="vendor/three.min.js"></script>
-<!-- surface maps as data: URIs — see scripts/embed_textures.py.  Must
-     come before art.js, which reads TextureData at load time. -->
-<script src="js/textures.js"></script>
+<!-- Surface maps as data: URIs — see scripts/embed_textures.py.  Loaded
+     "async" on purpose: it is over a megabyte, and nothing needs it until
+     a race is built, so it must not sit in front of the game code.  A
+     plain <script> here would block boot until all of it arrives — the
+     title screen would paint but its buttons would be dead — because
+     game.js wires the menus up on DOMContentLoaded, and a blocking
+     script delays that event until the whole download finishes.  async
+     keeps it off that path; TextureData is read only inside loadSurface,
+     which falls back to the .jpg files (or the painted canvas) if the
+     data has not landed yet. -->
+<script async src="js/textures.js"></script>
 <script src="js/util.js"></script>
 <script src="js/art.js"></script>
 <script src="js/tracks.js"></script>

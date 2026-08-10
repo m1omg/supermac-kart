@@ -1036,4 +1036,14 @@ var Game = (function () {
   };
 })();
 
-window.addEventListener('load', Game.boot);
+/* Boot as soon as the DOM and the game code are ready — not on 'load',
+   which also waits for every subresource to finish downloading.  The
+   surface-map bundle (js/textures.js) is over a megabyte and loads
+   async; hanging boot on 'load' would leave the title screen painted
+   but unresponsive until that bundle arrived.  boot needs only the DOM
+   and THREE, both of which are up by DOMContentLoaded. */
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', Game.boot);
+} else {
+  Game.boot();
+}
