@@ -52,12 +52,14 @@ var Art = (function () {
      game falls back to flat colour.  Data URIs make no request, carry
      no origin, and cannot be blocked, so they behave the same whether
      the game is served from GitHub Pages or double-clicked out of a
-     folder — and the maps are up before the first frame instead of
-     arriving mid-race.
+     folder.
 
-     If js/textures.js is missing the loader falls back to the .jpg
-     files, and if those fail too the canvas-painted twin below stays,
-     so the game still renders correctly, just flatter.
+     The bundle is loaded async (see index.html) so its weight never
+     delays the menus from booting.  That means it can land after a race
+     has already been built, so a surface takes whatever source is ready
+     when it is created — the data URI if the bundle is in, else the .jpg
+     file, else the painted canvas twin below — and refreshSurfaces()
+     upgrades anything still on a fallback the moment the bundle arrives.
      ========================================================== */
 
   var loader = new THREE.TextureLoader();
@@ -67,12 +69,33 @@ var Art = (function () {
   loader.setCrossOrigin(null);
 
   var surfaceCache = {};
+  var surfaces = [];        /* every surface handed out, for late upgrades */
 
   function surfaceURL(name) {
     if (typeof TextureData !== 'undefined' && TextureData[name]) {
       return TextureData[name];
     }
     return 'textures/' + name + '.jpg';
+  }
+
+  /* Load the best source available *right now* into an existing texture.
+     Called once when the surface is created and again by refreshSurfaces
+     if it was still on its fallback when the data-URI bundle arrived. */
+  function applyImage(s) {
+    loader.load(
+      surfaceURL(s.name),
+      function (img) {
+        img.colorSpace = THREE.SRGBColorSpace;
+        img.wrapS = img.wrapT = THREE.RepeatWrapping;
+        img.repeat.set(s.rx || 1, s.ry || 1);
+        img.anisotropy = maxAnisotropy;
+        s.tex.image = img.image;
+        s.tex.needsUpdate = true;
+        s.done = true;
+      },
+      undefined,
+      function () { /* keep the painted fallback; a later pass may still land it */ }
+    );
   }
 
   function loadSurface(name, fallbackCanvas, rx, ry) {
@@ -85,26 +108,36 @@ var Art = (function () {
        disposeScene in game.js. */
     tex.userData.shared = true;
 
-    loader.load(
-      surfaceURL(name),
-      function (img) {
-        img.colorSpace = THREE.SRGBColorSpace;
-        img.wrapS = img.wrapT = THREE.RepeatWrapping;
-        img.repeat.set(rx || 1, ry || 1);
-        img.anisotropy = maxAnisotropy;
-        /* hand the loaded pixels to the texture already in the scene */
-        tex.image = img.image;
-        tex.needsUpdate = true;
-      },
-      undefined,
-      function () {
-        console.warn('SuperMac Kart: surface map "' + name +
-                     '" did not load; using the painted fallback.');
-      }
-    );
+    var s = { tex: tex, name: name, rx: rx, ry: ry, done: false };
+    surfaces.push(s);
+    applyImage(s);
 
     surfaceCache[key] = tex;
     return tex;
+  }
+
+  /* Re-try every surface still showing its flat fallback.  The map bundle
+     (js/textures.js) is loaded async so it never blocks the menus from
+     booting, which means it can land *after* the first race was built —
+     and in that race every surface would have fallen back to a flat colour
+     (or, over file://, to a .jpg the browser then refused).  Without this
+     second pass those surfaces would stay flat for the life of the page;
+     with it, they upgrade to the real maps the instant the data arrives. */
+  function refreshSurfaces() {
+    for (var i = 0; i < surfaces.length; i++) {
+      if (!surfaces[i].done) applyImage(surfaces[i]);
+    }
+  }
+
+  /* Watch for the async bundle to arrive and upgrade on the spot.  If it
+     never shows (bundle deleted), give up after a few seconds and leave
+     the surfaces on their .jpg / painted fallbacks. */
+  if (typeof TextureData === 'undefined') {
+    var waited = 0;
+    var poll = setInterval(function () {
+      if (typeof TextureData !== 'undefined') { clearInterval(poll); refreshSurfaces(); }
+      else if (++waited > 40) clearInterval(poll);
+    }, 150);
   }
 
   /* ---------- small canvas helpers ---------- */
@@ -1004,6 +1037,7 @@ var Art = (function () {
     anisotropy: function () { return maxAnisotropy; },
     texture: texture,
     loadSurface: loadSurface,
+    refreshSurfaces: refreshSurfaces,
     paint: paint,
     canvas: C,
     roundRect: rr,
