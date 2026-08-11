@@ -21,7 +21,8 @@ var Game = (function () {
   var state = 'menu';       /* menu | countdown | racing | finished | paused | results */
   var raceTime = 0, countdown = 0, finishDelay = 0;
   var accumulator = 0, lastFrame = 0, clockTime = 0;
-  var shake = 0;
+  var shake = 0;            /* impact kick, decays */
+  var rough = 0;            /* smoothed rough-ground level, 0..1 */
 
   var chosenMascot = 'happy';
   var chosenTrack = 'coast';
@@ -400,6 +401,7 @@ var Game = (function () {
     el.lapTotal.textContent = '/' + track.laps;
     el.lapNow.textContent = '1';
     shake = 0;
+    rough = 0;
   }
 
   function disposeScene(scene) {
@@ -706,6 +708,36 @@ var Game = (function () {
     }
   }
 
+  /* ---------- ground texture for the camera ----------
+
+     Deterministic 2-D value noise, hashed off the integer lattice.  This
+     is camera-only and is deliberately NOT part of the terrain height
+     formula (Util.roll): the ground plane, the verges and track.vergeY
+     all have to keep agreeing with each other at every seam, and mixing
+     a high-frequency term into that is what tears them apart.
+
+     Sines were the obvious choice here and they are the wrong one.
+     Driving in a straight line at a steady speed through a sum of
+     position sines is exactly a sum of sines in *time* — so it loops
+     just as plainly as a clock-driven wobble, which is the thing being
+     fixed.  Hashed noise has no period at all. */
+  function hash2(ix, iz) {
+    var h = Math.imul(ix, 374761393) + Math.imul(iz, 668265263);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 2147483648 - 1;      /* -1..1 */
+  }
+
+  function vnoise(x, z) {
+    var xi = Math.floor(x), zi = Math.floor(z);
+    var xf = x - xi, zf = z - zi;
+    var u = xf * xf * (3 - 2 * xf);                        /* smoothstep */
+    var v = zf * zf * (3 - 2 * zf);
+    var a = hash2(xi, zi), b = hash2(xi + 1, zi);
+    var c = hash2(xi, zi + 1), d = hash2(xi + 1, zi + 1);
+    var top = a + (b - a) * u;
+    return top + ((c + (d - c) * u) - top) * v;
+  }
+
   function updateCamera(dt) {
     var mode = CAM_MODES[camMode];
     var s = track.samples[player.sampleIdx];
@@ -726,21 +758,53 @@ var Game = (function () {
     var follow = 1 - Math.exp(-7.5 * dt);
     camera.position.lerp(camPos, follow);
 
-    /* Shake from contact and from running wide onto the dirt.
-       This is a smooth low-frequency rumble, not per-frame random
-       jitter: random offsets on every axis smear the whole scene
-       edge-to-edge and read as motion blur at speed, and they get
-       worse the faster the display refreshes.  A few fixed sine
-       waves still rattle the camera convincingly but stay readable. */
-    var rough = (!player.onRoad ? 0.12 : 0) + shake;
-    if (rough > 0.001) {
-      var amp = rough * 0.3;
-      var t = clockTime * (2 * Math.PI);
-      camera.position.x += Math.sin(t * 3.4) * amp;
-      camera.position.y += (Math.sin(t * 2.7) * 0.6 + Math.sin(t * 4.6) * 0.4) * amp;
-      camera.position.z += Math.sin(t * 3.1 + 1.3) * amp;
+    /* Rough-ground rumble.
+
+       This used to be a few fixed sine waves against the wall clock at a
+       constant strength, which had two tells: the pattern looped on a
+       short cycle, and it rattled exactly as hard whether the kart was
+       crawling off the road or flat out across it.
+
+       So the rumble is sampled from the *ground the kart is crossing*
+       instead of from a clock — a position-based corrugation.  Bumps
+       then arrive because you drove onto them: faster over the same
+       ground means they come faster and harder, and coming to a stop
+       settles the camera.  Because it is keyed to where you are on a
+       9000-unit field rather than to elapsed time, it never repeats.
+
+       Deliberately camera-only, and deliberately NOT part of the terrain
+       height formula (Util.roll): the ground plane, the verges and
+       track.vergeY all have to keep agreeing with each other, and adding
+       a term here would tear those seams apart. */
+    var speedFrac = THREE.MathUtils.clamp(
+      Math.abs(player.speed) / Math.max(1, player.maxSpeed), 0, 1);
+    /* fade in over the first third of the speed range, so idling on the
+       grass is still rather than buzzing */
+    var target = player.onRoad ? 0 : THREE.MathUtils.clamp(speedFrac / 0.35, 0, 1);
+    rough += (target - rough) * (1 - Math.exp(-6 * dt));
+
+    if (rough > 0.002) {
+      var px = player.pos.x, pz = player.pos.z;
+      /* two octaves: a long heave under a shorter chatter */
+      var heave = vnoise(px * 0.085, pz * 0.085);
+      var chat  = vnoise(px * 0.30 + 41, pz * 0.30 - 17);
+      var amp = rough * 0.030;
+      /* mostly vertical — lateral shake is what smears the scene
+         edge-to-edge and makes the picture hard to read at speed */
+      camera.position.y += (heave * 0.62 + chat * 0.38) * amp;
+      camera.position.x += vnoise(px * 0.11 + 133, pz * 0.11 + 61) * amp * 0.3;
+      camera.position.z += vnoise(px * 0.11 - 77, pz * 0.11 + 209) * amp * 0.3;
     }
-    shake = Math.max(0, shake - dt * 1.6);
+
+    /* Impacts are a separate, short kick.  Time-driven is fine here —
+       it decays inside a second, so there is no cycle to notice. */
+    if (shake > 0.001) {
+      var t = clockTime * (2 * Math.PI);
+      var kick = shake * 0.26;
+      camera.position.y += (Math.sin(t * 8.3) * 0.7 + Math.sin(t * 13.1) * 0.3) * kick;
+      camera.position.x += Math.sin(t * 10.7 + 1.3) * kick * 0.4;
+    }
+    shake = Math.max(0, shake - dt * 2.4);
 
     camera.lookAt(camLook);
 

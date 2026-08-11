@@ -26,7 +26,15 @@ Scripts are plain globals with no modules; order is the dependency graph and eac
 - Race arrangements build over their first four bars and then loop from bar 4, so the sparse intro is heard once per race.
 - `Sound.duck(amount)` pulls the music under the engine (nitro, pause). It is *not* the mute path — `M` mutes everything, `B` toggles music alone.
 - Gain ramps must never target 0 with `exponentialRampToValueAtTime` (it is illegal and silently kills the node); use the `decayTo` helper.
-- To verify without listening: render through an `OfflineAudioContext` and measure peak/RMS/clipping, and read `Sound._song()` for the live key and tempo. `scratchpad/music/` in the working session did both.
+- To verify without listening: render through an `OfflineAudioContext` and measure peak/RMS/clipping, and read `Sound._song()` for the live key and tempo.
+
+The **engine** needs three layers or it reads as a buzzer, not an engine: a harmonic stack over the firing frequency whose upper orders come up with load; fixed body resonances that the harmonics sweep past as the revs climb (that sweep *is* the growl — a filter that merely tracks pitch does not do it); and filtered intake/exhaust noise, which is most of what you hear at speed. Detuning comes from a smoothed random-walk buffer, never an LFO — anything periodic just adds a second audible tone. Karts are direct-drive, so the note climbs continuously; there are deliberately no gearshift steps.
+
+## Camera rumble
+
+Off-road rumble in `updateCamera` is sampled from **where the kart is**, not from the clock, and scaled by speed — so bumps arrive because you drove onto them, and coming to a stop settles the camera. It is camera-only and must never be folded into the terrain height formula (`Util.roll`), which the ground plane, the verges and `track.vergeY` all share.
+
+The trap: **do not build it from position sines.** Driving a straight line at constant speed through a sum of position sines is algebraically a sum of sines in *time*, so it loops exactly as visibly as a clock-driven wobble — measured at 0.93 self-similarity, versus 0.14 for the hashed value noise now used. Keep lateral shake far below vertical; sideways movement is what smears the picture at speed.
 
 ## Icons vs. faces (they are different art)
 

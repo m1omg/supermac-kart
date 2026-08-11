@@ -42,57 +42,176 @@ var Sound = (function () {
     return buf;
   }
 
-  /* ---------- engine ---------- */
+  /* A slow, organic wander in [-1, 1] — a smoothed random walk, looped
+     seamlessly.  Used to detune the engine a few cents: combustion is
+     never perfectly even, and that tiny instability is a large part of
+     why a real engine sounds alive.  A sine LFO cannot do this job —
+     being periodic, it just adds a second audible tone on top. */
+  function wanderBuffer(seconds) {
+    var len = Math.floor(ctx.sampleRate * seconds);
+    var buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    var d = buf.getChannelData(0);
+    var v = 0, peak = 0, i;
+    for (i = 0; i < len; i++) {
+      v += ((Math.random() * 2 - 1) - v) * 0.0016;
+      d[i] = v;
+      if (Math.abs(v) > peak) peak = Math.abs(v);
+    }
+    if (peak > 0) for (i = 0; i < len; i++) d[i] /= peak;
+
+    /* crossfade the tail into the head, or the loop ticks every pass */
+    var fade = Math.floor(len * 0.05);
+    for (i = 0; i < fade; i++) {
+      var k = i / fade;
+      d[len - fade + i] = d[len - fade + i] * (1 - k) + d[i] * k;
+    }
+    return buf;
+  }
+
+  /* ==========================================================
+     Engine
+
+     One sawtooth through a lowpass reads as a buzzer, not an engine.
+     Three things are what make an engine sound like one, and all three
+     are layered here:
+
+       * a stack of harmonics over the firing frequency whose upper
+         orders come up with load — the difference between an engine
+         labouring and an engine screaming is timbre, not just pitch;
+       * fixed body resonances that the harmonics sweep past as the
+         revs climb, which is what gives a real engine its vowel-like
+         growl instead of a steady tone that merely changes pitch;
+       * broadband intake and exhaust noise, which is most of what you
+         actually hear at speed and is entirely absent from any pure
+         oscillator.
+
+     Karts are direct-drive, so the note climbs continuously with road
+     speed — there are deliberately no gearshift steps in here.
+     ========================================================== */
 
   function startEngine() {
     if (!ctx || engine) return;
 
-    var gain = ctx.createGain();
-    gain.gain.value = 0;
+    var out = ctx.createGain();
+    out.gain.value = 0;
+    out.connect(master);
 
-    var filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = 900;
+    /* master tone — opens up as the revs rise */
+    var lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 900;
+    lp.Q.value = 0.7;
+    lp.connect(out);
 
-    var osc = ctx.createOscillator();
-    osc.type = 'sawtooth';
-    osc.frequency.value = 60;
+    /* the airbox/exhaust resonances, in series */
+    var throat = ctx.createBiquadFilter();
+    throat.type = 'peaking';
+    throat.frequency.value = 1250;
+    throat.Q.value = 2.2;
+    throat.gain.value = 6;
+    throat.connect(lp);
 
-    var sub = ctx.createOscillator();
-    sub.type = 'square';
-    sub.frequency.value = 30;
+    var bodyRes = ctx.createBiquadFilter();
+    bodyRes.type = 'peaking';
+    bodyRes.frequency.value = 340;
+    bodyRes.Q.value = 1.6;
+    bodyRes.gain.value = 9;
+    bodyRes.connect(throat);
 
-    var subGain = ctx.createGain();
-    subGain.gain.value = 0.35;
+    var oscBus = ctx.createGain();
+    oscBus.gain.value = 0.9;
+    oscBus.connect(bodyRes);
 
-    osc.connect(filter);
-    sub.connect(subGain);
-    subGain.connect(filter);
-    filter.connect(gain);
-    gain.connect(master);
+    /* the wander that detunes every partial together */
+    var wander = ctx.createBufferSource();
+    wander.buffer = wanderBuffer(3);
+    wander.loop = true;
+    var wanderAmt = ctx.createGain();
+    wanderAmt.gain.value = 14;            /* in cents */
+    wander.connect(wanderAmt);
 
-    osc.start();
-    sub.start();
+    function partial(type, mult, level, detune) {
+      var o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.value = 60 * mult;
+      o.detune.value = detune || 0;
+      wanderAmt.connect(o.detune);
+      var gn = ctx.createGain();
+      gn.gain.value = level;
+      o.connect(gn);
+      gn.connect(oscBus);
+      o.start();
+      return { osc: o, gain: gn, mult: mult };
+    }
 
-    engine = { osc: osc, sub: sub, gain: gain, filter: filter };
+    var parts = [
+      partial('square',   0.5, 0.30),        /* half-order thump   */
+      partial('sawtooth', 1,   0.50),        /* firing fundamental */
+      partial('sawtooth', 2,   0.20,  7),    /* second order       */
+      partial('square',   3,   0.08, -9)     /* the rasp on top    */
+    ];
+    wander.start();
+
+    /* intake / exhaust roar */
+    var noise = ctx.createBufferSource();
+    noise.buffer = noiseBuffer(2);
+    noise.loop = true;
+    var noiseBp = ctx.createBiquadFilter();
+    noiseBp.type = 'bandpass';
+    noiseBp.frequency.value = 500;
+    noiseBp.Q.value = 0.9;
+    var noiseGain = ctx.createGain();
+    noiseGain.gain.value = 0;
+    noise.connect(noiseBp);
+    noiseBp.connect(noiseGain);
+    noiseGain.connect(lp);
+    noise.start();
+
+    engine = {
+      parts: parts, oscBus: oscBus, lp: lp, out: out,
+      bodyRes: bodyRes, noise: noise, noiseBp: noiseBp, noiseGain: noiseGain,
+      wander: wander, wanderAmt: wanderAmt
+    };
   }
 
   function stopEngine() {
     if (!engine) return;
-    try { engine.osc.stop(); engine.sub.stop(); } catch (e) { /* already stopped */ }
+    var e = engine;
     engine = null;
+    try {
+      for (var i = 0; i < e.parts.length; i++) e.parts[i].osc.stop();
+      e.noise.stop();
+      e.wander.stop();
+    } catch (err) { /* already stopped */ }
     stopNitro();
   }
 
-  /* rpm 0..1, load 0..1 */
+  /* rpm 0..1 (a little over on boost), load 0..1 */
   function updateEngine(rpm, load) {
     if (!engine || !ctx) return;
     var t = ctx.currentTime;
-    var f = 48 + rpm * 210;
-    engine.osc.frequency.setTargetAtTime(f, t, 0.05);
-    engine.sub.frequency.setTargetAtTime(f / 2, t, 0.06);
-    engine.filter.frequency.setTargetAtTime(500 + rpm * 2600, t, 0.08);
-    engine.gain.gain.setTargetAtTime(0.05 + load * 0.1, t, 0.08);
+    var e = engine;
+    var r = Math.max(0, Math.min(1.25, rpm));
+
+    var f = 46 + r * 205;
+    for (var i = 0; i < e.parts.length; i++) {
+      e.parts[i].osc.frequency.setTargetAtTime(f * e.parts[i].mult, t, 0.045);
+    }
+
+    /* On the throttle the upper orders come up and the engine brightens;
+       off it, the note falls hollow.  This is the part that makes it
+       sound like it is doing work rather than just playing a pitch. */
+    e.parts[2].gain.gain.setTargetAtTime(0.09 + load * 0.24, t, 0.08);
+    e.parts[3].gain.gain.setTargetAtTime(0.02 + load * 0.15 * r, t, 0.08);
+
+    e.noiseBp.frequency.setTargetAtTime(320 + r * 1500, t, 0.07);
+    e.noiseGain.gain.setTargetAtTime((0.012 + r * 0.05) * (0.45 + load * 0.75), t, 0.09);
+
+    /* lumpy at idle, steady when it is singing */
+    e.wanderAmt.gain.setTargetAtTime(18 - r * 13, t, 0.15);
+
+    e.lp.frequency.setTargetAtTime(600 + r * 3400 + load * 700, t, 0.07);
+    e.out.gain.setTargetAtTime(0.05 + load * 0.085 + r * 0.03, t, 0.08);
   }
 
   /* ---------- nitro roar ---------- */
