@@ -163,203 +163,342 @@ var Karts = (function () {
       : cachedTex('face:' + m.id, function () { return Art.face(m); });
   }
 
+  /* Extrude a side-on profile sideways into a solid.  Several of these
+     machines are defined by their silhouette seen from the side — the
+     compact Mac's sloping forehead, the LaserWriter's steps — and a
+     stack of boxes never gets that shape.  Points are (z, y) in kart
+     space; the result is `width` wide, centred on x. */
+  function profileBody(points, width, mat, bevel) {
+    var shape = new THREE.Shape();
+    shape.moveTo(points[0][0], points[0][1]);
+    for (var i = 1; i < points.length; i++) shape.lineTo(points[i][0], points[i][1]);
+    shape.closePath();
+
+    var b = bevel === undefined ? 0.05 : bevel;
+    var geo = new THREE.ExtrudeGeometry(shape, {
+      depth: width, bevelEnabled: b > 0,
+      bevelSize: b, bevelThickness: b, bevelSegments: 2, curveSegments: 2
+    });
+    /* Built in the z-y plane and extruded along +z.  Turning it by -90
+       (not +90) maps the extrusion onto x while leaving the profile's z
+       pointing forward — the other way round mirrors the machine, which
+       looks almost right until you notice it is facing backwards.  The
+       shift then re-centres the extrusion on x=0. */
+    geo.rotateY(-Math.PI / 2);
+    geo.translate(width / 2, 0, 0);
+    geo.computeVertexNormals();
+    return new THREE.Mesh(geo, mat);
+  }
+
   var CHASSIS = {
 
-    /* The 1984 compact Macintosh: tapered beige case, sloped
-       front bezel, floppy slot, carry handle recess. */
+    /* The 1984 compact Macintosh.  Tall and narrow — far deeper and
+       taller than it is wide, which is the single most recognisable
+       thing about it and exactly what a box gets wrong.  The forehead
+       slopes back above the screen, the bezel is recessed, and the
+       floppy sits in the chin to the right of centre. */
     compact: function (g, m, mats) {
-      var sideTex = cachedTex('side:' + m.id, function () { return Art.compactSide(m.color); });
-      var caseMat = new THREE.MeshLambertMaterial({ map: sideTex });
-
-      /* main case, narrower at the top like the real thing */
-      var body = new THREE.Mesh(new THREE.CylinderGeometry(1.32, 1.5, 2.3, 4, 1), caseMat);
-      body.rotation.y = Math.PI / 4;
-      body.position.set(0, 1.32, -0.25);
-      body.scale.set(1, 1, 1.42);
+      /* side profile: vertical face, sloped forehead, flat top, and a
+         back that kicks in at the bottom for the cable recess */
+      var body = profileBody([
+        [ 1.05, 0.00], [ 1.05, 1.85], [ 0.92, 2.24], [ 0.55, 2.52],
+        [-0.78, 2.52], [-1.00, 2.24], [-1.00, 0.30], [-0.80, 0.00]
+      ], 1.98, mats.body);
+      body.position.set(0, 0.55, -0.15);
       g.add(body);
 
-      /* sloped front bezel */
-      var bezel = new THREE.Mesh(new THREE.BoxGeometry(1.95, 1.5, 0.42), mats.dark);
-      bezel.position.set(0, 1.42, 1.28);
-      bezel.rotation.x = -0.16;
-      g.add(bezel);
+      /* recessed bezel: a shallow dark well the screen sits inside, so
+         the glass reads as set into the case rather than stuck on it */
+      var well = new THREE.Mesh(new THREE.BoxGeometry(1.62, 1.32, 0.16), mats.dark);
+      well.position.set(0, 1.92, 0.92);
+      g.add(well);
 
       var screen = new THREE.Mesh(
-        new THREE.PlaneGeometry(1.62, 1.24),
+        new THREE.PlaneGeometry(1.44, 1.12),
         new THREE.MeshBasicMaterial({ map: screenTexture(m) })
       );
-      screen.position.set(0, 1.44, 1.51);
-      screen.rotation.x = -0.16;
+      screen.position.set(0, 1.92, 1.01);
       g.add(screen);
 
-      /* floppy slot */
-      var slot = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.12, 0.1), mats.slot);
-      slot.position.set(0, 0.72, 1.44);
+      /* the disc drive, offset right of centre as on the real machine */
+      var slot = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.1, 0.08), mats.slot);
+      slot.position.set(0.34, 1.02, 0.93);
       g.add(slot);
+      var eject = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.06), mats.dark);
+      eject.position.set(0.82, 0.9, 0.93);
+      g.add(eject);
 
-      return { seatY: 2.5, seatZ: -0.5, wing: true };
-    },
-
-    /* iMac G3: translucent curved shell over a bright core. */
-    imac: function (g, m, mats) {
-      var shellTex = cachedTex('shell:' + m.id, function () { return Art.shellPanel(m.color); });
-
-      /* opaque inner body so the shell has something to sit over */
-      var core = new THREE.Mesh(
-        new THREE.SphereGeometry(1.15, 18, 14),
-        new THREE.MeshLambertMaterial({ color: 0xf2f2ec })
-      );
-      core.scale.set(1, 0.92, 1.35);
-      core.position.set(0, 1.25, -0.1);
-      g.add(core);
-
-      var shell = new THREE.Mesh(
-        new THREE.SphereGeometry(1.3, 20, 16),
-        new THREE.MeshPhongMaterial({
-          map: shellTex, transparent: true, opacity: 0.62,
-          shininess: 90, specular: 0x9fdfff, depthWrite: false
+      /* the six-stripe badge on the chin */
+      var badge = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.56, 0.24),
+        new THREE.MeshBasicMaterial({
+          map: cachedTex('badge', function () { return Art.rainbowBadge(); })
         })
       );
-      shell.scale.set(1, 0.95, 1.38);
-      shell.position.set(0, 1.25, -0.1);
+      badge.position.set(-0.48, 1.0, 0.94);
+      g.add(badge);
+
+      /* cooling slots across the top, and the carry-handle recess */
+      for (var i = 0; i < 5; i++) {
+        var vent = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.05, 0.09), mats.dark);
+        vent.position.set(0, 2.53, -0.05 - i * 0.16);
+        g.add(vent);
+      }
+      var handle = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.1, 0.26), mats.dark);
+      handle.position.set(0, 2.5, -0.86);
+      g.add(handle);
+
+      return { seatY: 2.9, seatZ: -1.05, wing: true, scale: 0.82 };
+    },
+
+    /* iMac G3: the translucent egg.  Two spheres never read as one —
+       the machine's whole shape is a swell at the CRT pulled into a
+       waist and set back out onto a foot, so it is turned as a solid
+       of revolution and then squashed front-to-back. */
+    imac: function (g, m, mats) {
+      /* radius against height, from the foot up to the dome */
+      var pts = [
+        [0.00, 0.00], [0.86, 0.00], [0.94, 0.10], [0.88, 0.26],
+        [0.62, 0.42], [0.58, 0.60], [0.78, 0.86], [1.02, 1.16],
+        [1.18, 1.52], [1.20, 1.88], [1.08, 2.20], [0.82, 2.46],
+        [0.44, 2.62], [0.00, 2.66]
+      ];
+      function lathe(scale, mat) {
+        var v = [];
+        for (var i = 0; i < pts.length; i++) {
+          v.push(new THREE.Vector2(pts[i][0] * scale, pts[i][1]));
+        }
+        var geo = new THREE.LatheGeometry(v, 20);
+        return new THREE.Mesh(geo, mat);
+      }
+
+      /* opaque inner core, so the coloured shell has something behind it */
+      var core = lathe(0.94, new THREE.MeshLambertMaterial({ color: 0xf2f2ec }));
+      core.scale.z = 0.88;
+      core.position.set(0, 0.5, -0.15);
+      g.add(core);
+
+      /* the tinted shell over it */
+      var shell = lathe(1, new THREE.MeshPhongMaterial({
+        color: m.color, transparent: true, opacity: 0.55,
+        shininess: 95, specular: 0x9fdfff, depthWrite: false,
+        side: THREE.DoubleSide
+      }));
+      shell.scale.z = 0.9;
+      shell.position.set(0, 0.5, -0.15);
       shell.renderOrder = 2;
       g.add(shell);
 
-      /* CRT face */
+      /* CRT: a dark bezel ring with the picture set inside it */
+      var bezel = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.0, 1.0, 0.12, 20),
+        new THREE.MeshLambertMaterial({ color: 0x20242a })
+      );
+      bezel.rotation.x = Math.PI / 2;
+      bezel.position.set(0, 1.72, 0.86);
+      g.add(bezel);
+
       var screen = new THREE.Mesh(
-        new THREE.CircleGeometry(0.92, 24),
+        new THREE.CircleGeometry(0.86, 24),
         new THREE.MeshBasicMaterial({ map: screenTexture(m) })
       );
-      screen.position.set(0, 1.3, 1.62);
+      screen.position.set(0, 1.72, 0.94);
       g.add(screen);
 
-      /* the iMac's carry handle */
-      var handle = new THREE.Mesh(
-        new THREE.TorusGeometry(0.34, 0.09, 8, 16, Math.PI),
-        new THREE.MeshPhongMaterial({
-          color: m.color, transparent: true, opacity: 0.75, shininess: 80
-        })
+      /* The carry handle is a grip *sunk into* the crown, not a loop
+         stuck on top — a raised torus at this scale just reads as a
+         lump growing out of the shell. */
+      var grip = new THREE.Mesh(
+        new THREE.BoxGeometry(0.5, 0.1, 0.34),
+        new THREE.MeshLambertMaterial({ color: Util.mix(m.color, '#000000', 0.55) })
       );
-      handle.position.set(0, 2.16, -0.95);
-      handle.rotation.set(0, 0, 0);
-      g.add(handle);
+      grip.position.set(0, 2.86, -0.52);
+      grip.rotation.x = 0.2;
+      g.add(grip);
 
-      return { seatY: 2.35, seatZ: -0.9, wing: true };
+      return { seatY: 3.05, seatZ: -1.0, wing: true, scale: 0.82 };
     },
 
-    /* A System 7 window on wheels: white panel, striped title
-       bar, close box.  Finder and the Bomb both ride one. */
+    /* A System 7 window on wheels.  A window is a thin upright panel,
+       not a crate, and its chrome is the recognisable part: the striped
+       title bar with a close box at one end and a zoom box at the other,
+       a scroll bar down the right with arrow buttons, and the hard black
+       one-pixel outline around the whole thing. */
     dialog: function (g, m, mats) {
       var barTex = cachedTex('bar:' + m.id, function () { return Art.titleBar(m.trim); });
+      var ink = new THREE.MeshBasicMaterial({ color: 0x15151a });
+      var W = 2.34, H = 2.05, D = 1.5;
 
-      var win = new THREE.Mesh(new THREE.BoxGeometry(2.3, 1.6, 2.9), mats.paper);
-      win.position.set(0, 1.25, -0.15);
+      var win = new THREE.Mesh(new THREE.BoxGeometry(W, H, D), mats.paper);
+      win.position.set(0, 1.55, -0.1);
       g.add(win);
 
-      /* black window outline */
+      /* the window's black outline */
       var edge = new THREE.Mesh(
-        new THREE.BoxGeometry(2.38, 1.68, 2.98),
+        new THREE.BoxGeometry(W + 0.07, H + 0.07, D + 0.07),
         new THREE.MeshBasicMaterial({ color: 0x15151a, side: THREE.BackSide })
       );
       edge.position.copy(win.position);
       g.add(edge);
 
-      /* title bar across the front */
-      var bar = new THREE.Mesh(
-        new THREE.PlaneGeometry(2.24, 0.62),
-        new THREE.MeshBasicMaterial({ map: barTex })
-      );
-      bar.position.set(0, 1.72, 1.31);
-      g.add(bar);
+      var face = 0.66;                    /* front face, just proud of it */
 
-      /* window content area */
+      /* title bar */
+      var bar = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.08, 0.42),
+                               new THREE.MeshBasicMaterial({ map: barTex }));
+      bar.position.set(0, 2.32, face);
+      g.add(bar);
+      var barLine = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.08, 0.03), ink);
+      barLine.position.set(0, 2.1, face);
+      g.add(barLine);
+
+      /* close box (left) and zoom box (right) */
+      var boxGeo = new THREE.PlaneGeometry(0.2, 0.2);
+      var close = new THREE.Mesh(boxGeo, ink);
+      close.position.set(-(W / 2) + 0.24, 2.32, face + 0.005);
+      g.add(close);
+      var closeIn = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.13), mats.paper);
+      closeIn.position.set(-(W / 2) + 0.24, 2.32, face + 0.01);
+      g.add(closeIn);
+
+      var zoom = new THREE.Mesh(boxGeo, ink);
+      zoom.position.set((W / 2) - 0.24, 2.32, face + 0.005);
+      g.add(zoom);
+      var zoomIn = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.13), mats.paper);
+      zoomIn.position.set((W / 2) - 0.24, 2.32, face + 0.01);
+      g.add(zoomIn);
+
+      /* content area */
       var content = new THREE.Mesh(
-        new THREE.PlaneGeometry(1.9, 0.82),
+        new THREE.PlaneGeometry(W - 0.42, 1.25),
         new THREE.MeshBasicMaterial({ map: screenTexture(m) })
       );
-      content.position.set(0, 1.03, 1.31);
+      content.position.set(-0.13, 1.4, face);
       g.add(content);
 
-      /* scroll bar down the side */
-      var scroll = new THREE.Mesh(new THREE.BoxGeometry(0.02, 1.2, 0.26), mats.dark);
-      scroll.position.set(1.16, 1.15, 0.2);
-      g.add(scroll);
+      /* scroll bar down the right, with its two arrow buttons */
+      var track = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 1.66),
+                                 new THREE.MeshBasicMaterial({ color: 0xd8d8d2 }));
+      track.position.set((W / 2) - 0.17, 1.32, face);
+      g.add(track);
+      var thumb = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.42), mats.paper);
+      thumb.position.set((W / 2) - 0.17, 1.72, face + 0.005);
+      g.add(thumb);
+      [2.03, 0.6].forEach(function (y) {
+        var arrow = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.24),
+                                   new THREE.MeshBasicMaterial({ color: 0xb4b4ae }));
+        arrow.position.set((W / 2) - 0.17, y, face + 0.005);
+        g.add(arrow);
+      });
+      var trackEdge = new THREE.Mesh(new THREE.PlaneGeometry(0.03, 1.66), ink);
+      trackEdge.position.set((W / 2) - 0.31, 1.32, face + 0.005);
+      g.add(trackEdge);
 
-      return { seatY: 2.15, seatZ: -0.8, wing: true };
+      return { seatY: 2.75, seatZ: -0.95, wing: true, scale: 0.86 };
     },
 
-    /* 2013 Mac Pro: the black cylinder, laid along the kart. */
+    /* 2013 Mac Pro: the black cylinder, stood upright the way it
+       actually sat on a desk, with the polished taper at the top and
+       the thermal core glowing up out of the throat. */
     cylinder: function (g, m, mats) {
-      var skinTex = cachedTex('skin:' + m.id, function () { return Art.face(m); }, 1, 3);
-      var can = new THREE.Mesh(
-        new THREE.CylinderGeometry(1.05, 1.05, 3.0, 24, 1, true),
-        new THREE.MeshPhongMaterial({ map: skinTex, shininess: 110, specular: 0x555a66 })
-      );
-      can.rotation.x = Math.PI / 2;
-      can.position.set(0, 1.2, -0.2);
+      var shell = new THREE.MeshPhongMaterial({
+        map: surfMap('dark_metal', 1, 2), color: 0x2a2a32,
+        shininess: 120, specular: 0x8a90a0
+      });
+
+      /* profile: near-vertical wall, rolling in to the rim at the top */
+      var pts = [
+        [0.00, 0.00], [1.02, 0.00], [1.06, 0.10], [1.06, 1.75],
+        [1.02, 1.95], [0.92, 2.06], [0.86, 2.10]
+      ];
+      var v = [];
+      for (var i = 0; i < pts.length; i++) v.push(new THREE.Vector2(pts[i][0], pts[i][1]));
+      var can = new THREE.Mesh(new THREE.LatheGeometry(v, 26), shell);
+      can.position.set(0, 0.62, -0.2);
       g.add(can);
 
-      /* closed nose, open glowing exhaust throat at the back */
-      var nose = new THREE.Mesh(new THREE.CircleGeometry(1.05, 24), mats.dark);
-      nose.position.set(0, 1.2, 1.3);
-      g.add(nose);
-
+      /* the throat, sunk below the rim so the glow comes from inside */
       var throat = new THREE.Mesh(
-        new THREE.CircleGeometry(1.02, 24),
-        new THREE.MeshBasicMaterial({ color: 0x0b0b10 })
+        new THREE.CylinderGeometry(0.84, 0.7, 0.5, 26, 1, true),
+        new THREE.MeshBasicMaterial({ color: 0x0b0b10, side: THREE.BackSide })
       );
-      throat.position.set(0, 1.2, -1.7);
-      throat.rotation.y = Math.PI;
+      throat.position.set(0, 2.46, -0.2);
       g.add(throat);
+      var floorDisc = new THREE.Mesh(
+        new THREE.CircleGeometry(0.7, 26),
+        new THREE.MeshBasicMaterial({ color: 0x123a46 })
+      );
+      floorDisc.rotation.x = -Math.PI / 2;
+      floorDisc.position.set(0, 2.22, -0.2);
+      g.add(floorDisc);
 
       var glowTex = cachedTex('glow:cyan', function () { return Art.radial('rgba(125,227,255,.9)'); });
       var glow = new THREE.Sprite(new THREE.SpriteMaterial({
         map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true
       }));
-      glow.position.set(0, 1.2, -1.76);
-      glow.scale.set(2.4, 2.4, 1);
+      glow.position.set(0, 2.5, -0.2);
+      glow.scale.set(2.0, 2.0, 1);
       g.add(glow);
 
-      return { seatY: 2.42, seatZ: -0.3, wing: false };
+      return { seatY: 2.9, seatZ: -0.2, wing: false, scale: 0.88 };
     },
 
     /* LaserWriter — Clarus the dogcow came from a print dialog,
        so of course the dogcow drives the printer. */
     laserwriter: function (g, m, mats) {
-      var panelTex = cachedTex('printer', function () { return Art.printerPanel(); });
-      var caseMat = new THREE.MeshLambertMaterial({ map: panelTex });
+      var caseMat = mats.body;
 
-      var body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.35, 3.1), caseMat);
-      body.position.set(0, 1.1, -0.2);
+      /* The LaserWriter is a wedge of steps: a low front where the paper
+         comes out, rising to a tall back over the engine.  Extruding that
+         profile keeps the steps crisp. */
+      var body = profileBody([
+        [ 1.32, 0.00], [ 1.32, 0.72], [ 0.62, 0.72], [ 0.62, 1.16],
+        [-0.30, 1.16], [-0.30, 1.58], [-1.42, 1.58], [-1.42, 0.00]
+      ], 2.36, caseMat);
+      body.position.set(0, 0.56, -0.1);
       g.add(body);
 
-      /* stepped top cover */
-      var lid = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.4, 2.0), caseMat);
-      lid.position.set(0, 1.95, -0.5);
-      g.add(lid);
-
-      /* paper tray angled out of the front */
-      var tray = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.1, 1.5), mats.paper);
-      tray.position.set(0, 1.42, 1.5);
-      tray.rotation.x = 0.34;
+      /* output tray: the shallow dish the pages land in */
+      var tray = new THREE.Mesh(new THREE.BoxGeometry(1.94, 0.07, 0.86), mats.paper);
+      tray.position.set(0, 1.31, 0.5);
+      tray.rotation.x = 0.12;
       g.add(tray);
+      [-1, 1].forEach(function (s) {
+        var lip = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.16, 0.86), caseMat);
+        lip.position.set(s * 1.0, 1.36, 0.5);
+        g.add(lip);
+      });
 
-      /* a sheet mid-print, with the dogcow's own face on it */
+      /* a sheet caught mid-print, with the dogcow on it */
       var faceTex = cachedTex('face:' + m.id, function () { return Art.face(m); });
       var sheet = new THREE.Mesh(
-        new THREE.PlaneGeometry(1.3, 1.0),
+        new THREE.PlaneGeometry(1.32, 1.0),
         new THREE.MeshLambertMaterial({ map: faceTex, side: THREE.DoubleSide })
       );
-      sheet.position.set(0, 1.62, 1.42);
-      sheet.rotation.x = -1.24;
+      sheet.position.set(0, 1.62, 0.66);
+      sheet.rotation.x = -1.15;
       g.add(sheet);
 
-      /* output slot */
-      var slot = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.14, 0.08), mats.slot);
-      slot.position.set(0, 1.72, 1.31);
+      /* the slot it is coming out of */
+      var slot = new THREE.Mesh(new THREE.BoxGeometry(1.86, 0.12, 0.08), mats.slot);
+      slot.position.set(0, 1.3, 0.12);
       g.add(slot);
 
-      return { seatY: 2.32, seatZ: -0.9, wing: false };
+      /* paper cassette poking out of the front */
+      var tray2 = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.3, 0.7), mats.trim);
+      tray2.position.set(0, 0.82, 1.5);
+      g.add(tray2);
+
+      /* control panel on the high back deck */
+      var panel = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.8, 0.34),
+        new THREE.MeshBasicMaterial({ map: cachedTex('printer', function () { return Art.printerPanel(); }) })
+      );
+      panel.rotation.x = -Math.PI / 2;
+      panel.position.set(0.5, 2.15, -0.9);
+      g.add(panel);
+
+      return { seatY: 2.5, seatZ: -1.0, wing: false };
     }
   };
 
@@ -397,8 +536,18 @@ var Karts = (function () {
       g.add(pod);
     });
 
-    /* the hardware itself */
-    var spec = (CHASSIS[m.chassis] || CHASSIS.compact)(g, m, mats);
+    /* The hardware itself.  Each machine is modelled at its own true
+       proportions — a compact Mac really is much taller than it is wide —
+       and then the whole hull is scaled to fit the kart.  Doing it this
+       way keeps the shapes honest without letting the tall ones grow up
+       into the chase camera and hide the road from the player. */
+    var hull = new THREE.Group();
+    var spec = (CHASSIS[m.chassis] || CHASSIS.compact)(hull, m, mats);
+    var hs = spec.scale || 1;
+    hull.scale.setScalar(hs);
+    g.add(hull);
+
+    var seatY = spec.seatY * hs, seatZ = spec.seatZ * hs;
     var body = pan;
 
     /* Only creatures ride; a machine that IS the mascot drives itself. */
@@ -406,12 +555,12 @@ var Karts = (function () {
     if (m.rider) {
       head = buildHead(m);
       head.scale.setScalar(0.82);
-      head.position.set(0, spec.seatY, spec.seatZ);
+      head.position.set(0, seatY, seatZ);
       g.add(head);
 
       /* a seat back for the rider to sit against */
       var seat = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.7, 0.24), mats.dark);
-      seat.position.set(0, spec.seatY - 0.5, spec.seatZ - 0.55);
+      seat.position.set(0, seatY - 0.5, seatZ - 0.55);
       g.add(seat);
     }
 

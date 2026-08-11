@@ -42,8 +42,10 @@ but fully playable.
 | **Nitro** | `Space` |
 | Drift | `Shift` (hold with steering; a long enough slide pays out a mini-turbo) |
 | Camera | `C` — chase / far / bumper |
+| Textures | `T` — photographic maps on / off |
 | Pause | `P` or `Esc` |
-| Mute | `M` |
+| Mute everything | `M` |
+| Music only | `B` |
 | Un-stick yourself | `R` |
 
 Touch controls appear automatically on touch devices.

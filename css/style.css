@@ -452,10 +452,15 @@ button.big { font-size: clamp(14px, 2vw, 24px); padding: 1.05em 2.8em; }
   box-shadow: 0 10px 30px rgba(255, 176, 32, .18);
 }
 .card canvas { display: block; width: 100%; height: auto; }
-/* Cap mascot portraits so both rows plus the stat block fit a 720p screen. */
+/* Cap mascot portraits so both rows plus the stat block fit a 720p screen.
+   The portraits are 32x32 pixel icons blown up, so the browser must not
+   smooth them on the way to the card size — bilinear scaling is exactly
+   what turns hand-placed pixels back into mush. */
 #charGrid .card canvas {
   height: clamp(72px, 14vh, 140px);
   object-fit: contain;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 /* Track previews are wide; cap their height so all four circuits fit on
    a 720p screen without the picker turning into a scroller. */

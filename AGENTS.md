@@ -15,6 +15,29 @@ Scripts are plain globals with no modules; order is the dependency graph and eac
 - `js/textures.js` is loaded with `async` **on purpose** — game.js must keep working before `TextureData` lands (it falls back to `textures/*.jpg` or painted canvases).
 - game.js wires menus on `DOMContentLoaded`; anything that waits on it must not block it.
 - New script files must be added before `game.js` unless they are async-safe.
+- Audio cannot exist before a user gesture, so `Sound.init()` (and therefore any music) starts on the first button click, not at boot.
+
+## Soundtrack
+
+`js/audio.js` sequences the retrowave score itself — there are no audio files, and there must not be. A `setInterval` wakes every 25 ms and schedules every note landing in the next 120 ms **against `ctx.currentTime`**, never against the timer's own clock; that lookahead is what keeps the groove steady through a frame hitch. Voices (kick, gated snare, hat, bass, pluck, lead, pad) are built per note and stopped, so nothing accumulates.
+
+- `Sound.music('menu' | 'race' | 'none', circuitId)` is the only entry point; it is idempotent, so calling it with what is already playing does nothing.
+- Each circuit has its own key, tempo and lead patch in `CIRCUIT` — that is what makes the four tracks distinct. The menu theme is slower and in its own key.
+- Race arrangements build over their first four bars and then loop from bar 4, so the sparse intro is heard once per race.
+- `Sound.duck(amount)` pulls the music under the engine (nitro, pause). It is *not* the mute path — `M` mutes everything, `B` toggles music alone.
+- Gain ramps must never target 0 with `exponentialRampToValueAtTime` (it is illegal and silently kills the node); use the `decayTo` helper.
+- To verify without listening: render through an `OfflineAudioContext` and measure peak/RMS/clipping, and read `Sound._song()` for the live key and tempo. `scratchpad/music/` in the working session did both.
+
+## Icons vs. faces (they are different art)
+
+`Art.icon(m, size)` draws the mascot on a **32x32 grid** with hard edges and no anti-aliasing — that grid *is* why they read as Mac icons, so never smooth them, and keep the canvas at a whole number of pixels per cell (`portrait()` floors the cell size for this reason; the CSS also sets `image-rendering: pixelated`). `Art.face(m)` is something else entirely: a wrap map stretched over a sphere or cylinder in 3-D. Seen flat it reads as stripes and blobs, which is exactly how the character picker used to look. Don't reuse one for the other's job.
+
+## Chassis models
+
+Each machine in `kart.js CHASSIS` is modelled at its **own true proportions** (a compact Mac really is far taller and deeper than it is wide) and the finished hull is then scaled by the `scale` its builder returns, so tall machines fit the kart and stay out of the chase camera. Change the model, not the camera. Seat positions returned by a builder are in un-scaled model space; `buildKartMesh` multiplies them.
+
+- `profileBody(points, width, mat)` extrudes a side-on `(z, y)` silhouette sideways — use it wherever the machine is defined by its profile (the compact's sloped forehead, the LaserWriter's steps). It rotates by **-90°**, not +90°: the other sign mirrors the machine so it faces backwards, which is easy to miss.
+- `THREE.LatheGeometry` turns the round ones (iMac egg, Mac Pro cylinder) from a radius/height table. Two stacked spheres never read as one iMac.
 
 ## Code style
 

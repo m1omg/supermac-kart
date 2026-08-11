@@ -239,6 +239,331 @@ var Art = (function () {
   }
 
   /* ==========================================================
+     Mascot icons
+
+     Drawn the way the originals were: on a 32x32 grid, one flat
+     colour per cell, hard edges, no anti-aliasing anywhere.  That
+     is the whole reason these read as Mac icons rather than as
+     generic app art — a 32px icon that has been smoothed is just
+     a small blurry picture, and the eye knows immediately.
+
+     So nothing here uses a curve.  Every shape is laid down in
+     grid cells through px/frame/frameIn, then the finished grid is
+     blown up with image smoothing switched off, which keeps the
+     pixels square at any card size.  Colours come from the System 7
+     / Mac OS 8 palette, so the hardware keeps its real identity
+     (Bondi blue stays Bondi blue, the beachball keeps its six).
+     ========================================================== */
+
+  var GRID = 32;                     /* the classic icon size */
+
+  /* A tiny painter that snaps everything to the icon grid.  Cell
+     coordinates in, pixels out. */
+  function IconGrid(ctx, cell) {
+    this.ctx = ctx;
+    this.c = cell;
+  }
+  IconGrid.prototype.px = function (x, y, w, h, col) {
+    if (!col) return;
+    this.ctx.fillStyle = col;
+    this.ctx.fillRect(Math.round(x) * this.c, Math.round(y) * this.c,
+                      Math.round(w) * this.c, Math.round(h) * this.c);
+  };
+  /* 1-cell outline sitting *outside* the given box */
+  IconGrid.prototype.frame = function (x, y, w, h, col) {
+    this.px(x, y - 1, w, 1, col);
+    this.px(x, y + h, w, 1, col);
+    this.px(x - 1, y, 1, h, col);
+    this.px(x + w, y, 1, h, col);
+    /* corners */
+    this.px(x - 1, y - 1, 1, 1, col);
+    this.px(x + w, y - 1, 1, 1, col);
+    this.px(x - 1, y + h, 1, 1, col);
+    this.px(x + w, y + h, 1, 1, col);
+  };
+  /* 1-cell outline drawn *inside* the given box */
+  IconGrid.prototype.frameIn = function (x, y, w, h, col) {
+    this.px(x, y, w, 1, col);
+    this.px(x, y + h - 1, w, 1, col);
+    this.px(x, y, 1, h, col);
+    this.px(x + w - 1, y, 1, h, col);
+  };
+  /* A filled disc rasterised onto the grid — pixel-stepped, never
+     a smooth arc, so it keeps the chunky staircase edge. */
+  IconGrid.prototype.disc = function (cx, cy, r, col, shade) {
+    for (var y = Math.floor(cy - r); y <= Math.ceil(cy + r); y++) {
+      for (var x = Math.floor(cx - r); x <= Math.ceil(cx + r); x++) {
+        var dx = x + 0.5 - cx, dy = y + 0.5 - cy;
+        if (dx * dx + dy * dy > r * r) continue;
+        this.px(x, y, 1, 1, shade ? shade(x, y, dx, dy) : col);
+      }
+    }
+  };
+
+  /* Classic 50% checkerboard — how a 1-bit era icon made grey, and
+     still the quickest way to say "Mac" in a highlight. */
+  IconGrid.prototype.dither = function (x, y, w, h, col) {
+    for (var j = 0; j < h; j++) {
+      for (var i = 0; i < w; i++) {
+        if ((i + j) % 2 === 0) this.px(x + i, y + j, 1, 1, col);
+      }
+    }
+  };
+
+  /* The compact Macintosh body, shared by Happy and Sad Mac.  Both
+     are the same machine; only the screen and the case tint differ. */
+  function compactIcon(g, pal, faceFn) {
+    /* case: 20 cells wide, with the real machine's slight taper */
+    g.px(6, 2, 20, 1, pal.edge);
+    g.px(5, 3, 22, 22, pal.edge);
+    g.px(6, 3, 20, 21, pal.case);
+    /* the front is lighter than the sides, as on the real bezel */
+    g.px(6, 3, 20, 1, pal.lit);
+    g.px(6, 24, 20, 1, pal.shade);
+
+    /* screen recess */
+    g.px(8, 5, 16, 13, pal.edge);
+    g.px(9, 6, 14, 11, pal.screen);
+    faceFn(g, pal);
+
+    /* the Apple-era vent line under the screen */
+    g.px(9, 19, 6, 1, pal.shade);
+
+    /* floppy slot */
+    g.px(9, 21, 14, 2, pal.slot);
+    g.px(10, 22, 12, 1, pal.edge);
+
+    /* foot / chin */
+    g.px(7, 25, 18, 2, pal.shade);
+    g.px(8, 27, 16, 1, pal.edge);
+  }
+
+  var ICON = {
+
+    happy: function (g) {
+      compactIcon(g, {
+        edge: '#2b2620', case: '#d8cba8', lit: '#eee2c2', shade: '#a2957a',
+        screen: '#b8dcc0', slot: '#4a4238'
+      }, function (g) {
+        /* the smile that greeted every boot */
+        g.px(12, 9, 2, 2, '#1d3a24');
+        g.px(18, 9, 2, 2, '#1d3a24');
+        g.px(12, 13, 8, 1, '#1d3a24');
+        g.px(11, 12, 1, 1, '#1d3a24');
+        g.px(20, 12, 1, 1, '#1d3a24');
+      });
+    },
+
+    sad: function (g) {
+      compactIcon(g, {
+        edge: '#24262b', case: '#a8acb4', lit: '#c4c8d0', shade: '#787c85',
+        screen: '#8fa8a0', slot: '#3a3d44'
+      }, function (g) {
+        /* X eyes: drawn cell by cell, the way the original was */
+        [11, 18].forEach(function (ex) {
+          g.px(ex, 8, 1, 1, '#1d2a24'); g.px(ex + 3, 8, 1, 1, '#1d2a24');
+          g.px(ex + 1, 9, 1, 1, '#1d2a24'); g.px(ex + 2, 9, 1, 1, '#1d2a24');
+          g.px(ex + 1, 10, 1, 1, '#1d2a24'); g.px(ex + 2, 10, 1, 1, '#1d2a24');
+          g.px(ex, 11, 1, 1, '#1d2a24'); g.px(ex + 3, 11, 1, 1, '#1d2a24');
+        });
+        /* frown */
+        g.px(12, 14, 8, 1, '#1d2a24');
+        g.px(11, 15, 1, 1, '#1d2a24');
+        g.px(20, 15, 1, 1, '#1d2a24');
+      });
+    },
+
+    /* iMac G3: the translucent egg, seen head on.  The silhouette is the
+       whole point — a big round CRT swelling out at the shoulders, pulled
+       in under the chin, then flaring back out onto the foot.  Drawn as a
+       row-by-row profile so that curve survives on 32 cells. */
+    bondi: function (g) {
+      var shell = '#3d9aa8', lit = '#8adfe8', deep = '#1b545f', edge = '#0e2f38';
+
+      /* y, x, w — the silhouette is most of this icon's job.  The CRT
+         mass has to own about two thirds of the height, with only a short
+         chin and a small foot under it; stretch that neck and the whole
+         thing turns into a goblet. */
+      var body = [
+        [3, 12, 8], [4, 10, 12], [5, 9, 14], [6, 8, 16], [7, 7, 18],
+        [8, 7, 18], [9, 6, 20], [10, 6, 20], [11, 6, 20], [12, 6, 20],
+        [13, 6, 20], [14, 6, 20], [15, 6, 20], [16, 6, 20], [17, 7, 18],
+        [18, 8, 16], [19, 9, 14], [20, 10, 12], [21, 11, 10],
+        [22, 11, 10], [23, 10, 12], [24, 10, 12]
+      ];
+      var i, r;
+      for (i = 0; i < body.length; i++) {
+        r = body[i];
+        g.px(r[1] - 1, r[0], r[2] + 2, 1, edge);   /* outline */
+        g.px(r[1], r[0], r[2], 1, shell);
+      }
+      /* translucency: a bright edge down one side, shadow down the other */
+      for (i = 0; i < body.length; i++) {
+        r = body[i];
+        g.px(r[1], r[0], 2, 1, lit);
+        g.px(r[1] + r[2] - 2, r[0], 2, 1, deep);
+      }
+
+      /* CRT bezel + screen, centred in the round part */
+      g.px(9, 7, 14, 11, '#17303a');
+      g.px(10, 8, 12, 9, '#d3e7f0');
+      /* a desktop on it, not a blank pane */
+      g.px(10, 8, 12, 1, '#8fa8b8');
+      g.px(11, 10, 6, 1, '#4a6a80');
+      g.px(11, 12, 8, 1, '#4a6a80');
+      g.px(11, 14, 5, 1, '#4a6a80');
+
+      /* the recessed carry handle on top */
+      g.px(14, 2, 4, 1, edge);
+      g.px(15, 3, 2, 1, lit);
+    },
+
+    /* The spinning wait cursor: six wedges, rasterised by angle so
+       the boundaries land on cell edges. */
+    beachball: function (g) {
+      var cols = ['#e8443f', '#f3a63b', '#f7e04a', '#59c04a', '#3f8ae0', '#8a4fd0'];
+      g.disc(16, 16, 13, null, function (x, y, dx, dy) {
+        var a = Math.atan2(dy, dx) + Math.PI;          /* 0..2pi */
+        var i = Math.floor(a / (Math.PI * 2) * 6) % 6;
+        /* darken the lower half so the ball reads as round */
+        return dy > 4 ? Util.mix(cols[i], '#000000', 0.22) : cols[i];
+      });
+      /* rim and a hard specular block, the way an icon fakes gloss */
+      g.disc(16, 16, 13.9, null, function (x, y, dx, dy) {
+        return (dx * dx + dy * dy > 12.4 * 12.4) ? '#2a2a30' : null;
+      });
+      g.px(11, 9, 3, 2, '#ffffff');
+      g.px(13, 8, 2, 1, '#ffffff');
+    },
+
+    /* Clarus the dogcow, from the LaserWriter page-setup dialog:
+       a white body with black patches, snout, and floppy ears. */
+    clarus: function (g) {
+      var K = '#1b1b1b', W = '#f6f6f0';
+
+      /* Ears hang *below* the top of the head and clear of it, or at
+         icon size they merge into one black bar across the skull. */
+      g.px(5, 10, 3, 6, K);
+      g.px(6, 16, 2, 2, K);
+      g.px(24, 10, 3, 6, K);
+      g.px(24, 16, 2, 2, K);
+
+      /* head */
+      g.px(11, 5, 10, 1, K);
+      g.px(9, 6, 14, 16, K);
+      g.px(10, 6, 12, 15, W);
+
+      /* the dogcow's patches — kept off the ears and away from the eyes */
+      g.px(10, 6, 3, 3, K);
+      g.px(19, 7, 3, 3, K);
+
+      /* eyes */
+      g.px(12, 11, 2, 3, K);
+      g.px(18, 11, 2, 3, K);
+
+      /* snout */
+      g.px(12, 15, 8, 5, K);
+      g.px(13, 16, 6, 3, '#e8b0b0');
+      g.px(14, 17, 1, 1, K);
+      g.px(17, 17, 1, 1, K);
+
+      /* body below the head, and the tail flicking out to the side */
+      g.px(11, 22, 10, 4, K);
+      g.px(12, 22, 8, 3, W);
+      g.px(13, 23, 3, 2, K);
+      g.px(21, 22, 2, 1, K);
+      g.px(23, 21, 1, 2, K);
+      /* hooves */
+      g.px(12, 26, 2, 2, K);
+      g.px(18, 26, 2, 2, K);
+    },
+
+    /* The System 7 bomb — the dialog nobody wanted to see. */
+    bomb: function (g) {
+      /* fuse and spark, behind the body */
+      g.px(20, 6, 1, 3, '#8a6a3a');
+      g.px(21, 4, 1, 2, '#8a6a3a');
+      g.px(22, 3, 2, 2, '#ffd34d');
+      g.px(23, 2, 1, 1, '#fff3b8');
+      g.px(24, 4, 1, 1, '#ff9a3d');
+
+      /* cap */
+      g.px(17, 8, 4, 2, '#3a3a42');
+
+      /* body: black, with the icon-standard hard highlight */
+      g.disc(15, 19, 10, null, function (x, y, dx, dy) {
+        var d = dx * dx + dy * dy;
+        if (d > 9.2 * 9.2) return '#0a0a0c';
+        return '#1e1e24';
+      });
+      g.px(10, 13, 3, 2, '#6e6e7a');
+      g.px(12, 12, 2, 1, '#6e6e7a');
+      g.px(9, 15, 1, 2, '#4a4a54');
+    },
+
+    /* The Finder's split face: half blue, half white, one eye each. */
+    finder: function (g) {
+      var blue = '#2f6fd0', pale = '#eef3fa', edge = '#16233a';
+
+      g.px(7, 4, 18, 1, edge);
+      g.px(6, 5, 20, 22, edge);
+      g.px(7, 5, 9, 21, blue);
+      g.px(16, 5, 9, 21, pale);
+
+      /* eyes: reversed out of whichever half they sit on */
+      g.px(11, 11, 2, 4, pale);
+      g.px(19, 11, 2, 4, blue);
+
+      /* the smile crosses the divide, swapping colour with it */
+      g.px(10, 19, 6, 1, pale);
+      g.px(16, 19, 6, 1, blue);
+      g.px(9, 18, 1, 1, pale);
+      g.px(22, 18, 1, 1, blue);
+
+      /* centre seam */
+      g.px(16, 5, 1, 21, edge);
+    },
+
+    /* Mac Pro 2013 — the black cylinder, lit from inside the throat. */
+    trashcan: function (g) {
+      var body = '#26262c', dark = '#101014', lit = '#4e4e5a', glow = '#7de3ff';
+
+      /* It is a squat, fat can — drawn narrow it just reads as a post.
+         Top ellipse gets two rows so the opening looks like a throat. */
+      g.px(10, 5, 14, 1, dark);
+      g.px(9, 6, 16, 2, dark);
+      g.px(11, 6, 12, 1, glow);
+      g.px(12, 7, 10, 1, '#2b6a7a');
+
+      /* barrel: one soft gloss band down the left and a dark turn on the
+         right is all the roundness a 32px can needs — a second highlight
+         in the middle just reads as a seam. */
+      g.px(9, 8, 16, 16, body);
+      g.px(10, 8, 3, 16, lit);
+      g.px(13, 8, 1, 16, '#3a3a44');
+      g.px(22, 8, 3, 16, dark);
+
+      /* base */
+      g.px(9, 24, 16, 2, dark);
+      g.px(10, 26, 14, 1, '#0a0a0c');
+    }
+  };
+
+  /* Render a mascot's icon at any size.  The grid is drawn once at
+     32x32 and blown up with smoothing off, so a 200px card and a
+     32px HUD chip show the same crisp pixels. */
+  function icon(m, size) {
+    var cell = Math.max(1, Math.floor(size / GRID));
+    var S = cell * GRID;
+    var c = C(S, S);
+    var ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    var fn = ICON[m.id] || ICON.happy;
+    fn(new IconGrid(ctx, cell));
+    return c;
+  }
+
+  /* ==========================================================
      Mascot faces
      ========================================================== */
 
@@ -518,34 +843,22 @@ var Art = (function () {
      as a specific piece of Apple hardware rather than a box.
      ========================================================== */
 
-  /* Compact Mac side: vents, rainbow badge, moulded seam. */
-  function compactSide(base) {
-    return paint(256, 256, function (ctx, w, h) {
-      var g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, Util.mix(base, '#ffffff', 0.14));
-      g.addColorStop(1, Util.mix(base, '#000000', 0.18));
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, w, h);
-      noise(ctx, w, h, 900, 0.035, 12);
-
-      /* case seam */
-      ctx.fillStyle = 'rgba(0,0,0,.16)';
-      ctx.fillRect(0, h * 0.62, w, 2);
-
-      /* louvred vents */
-      ctx.fillStyle = 'rgba(0,0,0,.2)';
-      for (var i = 0; i < 9; i++) {
-        rr(ctx, w * 0.12, h * (0.1 + i * 0.045), w * 0.4, h * 0.018, h * 0.009);
-        ctx.fill();
-      }
-
-      /* six-stripe rainbow badge */
+  /* The six-stripe badge that sat on the chin of every beige Mac.  The
+     case itself is geometry now, so this is all that is left of the old
+     painted side panel — and it is the part that carries the era. */
+  function rainbowBadge() {
+    return paint(128, 64, function (ctx, w, h) {
       var cols = ['#61bb46', '#fdb827', '#f5821f', '#e03a3e', '#963d97', '#009ddc'];
-      var bx = w * 0.68, by = h * 0.72, bw = w * 0.2, bh = h * 0.16;
+      ctx.fillStyle = '#cfc4a4';
+      ctx.fillRect(0, 0, w, h);
+      var bw = w * 0.42, bh = h * 0.72, bx = w * 0.06, by = h * 0.14;
       for (var c = 0; c < cols.length; c++) {
         ctx.fillStyle = cols[c];
         ctx.fillRect(bx, by + (bh / cols.length) * c, bw, bh / cols.length + 0.5);
       }
+      /* the wordmark next to it, as a suggestion rather than lettering */
+      ctx.fillStyle = 'rgba(40,36,28,.55)';
+      for (var i = 0; i < 3; i++) ctx.fillRect(w * 0.56, h * (0.26 + i * 0.2), w * 0.36, h * 0.08);
     });
   }
 
@@ -574,30 +887,6 @@ var Art = (function () {
       ctx.fillRect(w * 0.32, 10, w * 0.36, h * 0.62);
       ctx.fillStyle = accent;
       ctx.fillRect(w * 0.32, h * 0.58, w * 0.36, 6);
-    });
-  }
-
-  /* Translucent iMac shell: coloured, with a lighter inner glow. */
-  function shellPanel(tint) {
-    return paint(256, 256, function (ctx, w, h) {
-      var g = ctx.createLinearGradient(0, 0, w, h);
-      g.addColorStop(0, Util.mix(tint, '#ffffff', 0.42));
-      g.addColorStop(0.5, tint);
-      g.addColorStop(1, Util.mix(tint, '#000000', 0.35));
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, w, h);
-
-      /* internals hinted through the plastic */
-      ctx.fillStyle = 'rgba(255,255,255,.18)';
-      for (var i = 0; i < 5; i++) {
-        rr(ctx, w * 0.14, h * (0.2 + i * 0.13), w * 0.72, h * 0.06, h * 0.03);
-        ctx.fill();
-      }
-      var s = ctx.createLinearGradient(0, 0, 0, h);
-      s.addColorStop(0, 'rgba(255,255,255,.5)');
-      s.addColorStop(0.25, 'rgba(255,255,255,0)');
-      ctx.fillStyle = s;
-      ctx.fillRect(0, 0, w, h);
     });
   }
 
@@ -1003,87 +1292,27 @@ var Art = (function () {
      Menu portrait (2-D, for the character picker)
      ========================================================== */
 
-  /* spherical shading pass, so a flat wrap texture reads as a ball */
-  function shadeRound(ctx, S) {
-    var sh = ctx.createRadialGradient(S * 0.35, S * 0.32, S * 0.05, S * 0.5, S * 0.5, S * 0.62);
-    sh.addColorStop(0, 'rgba(255,255,255,.25)');
-    sh.addColorStop(1, 'rgba(0,0,0,.35)');
-    ctx.fillStyle = sh;
-    ctx.beginPath();
-    ctx.arc(S / 2, S / 2, S / 2, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
+  /* The character-picker portrait is the mascot's icon, sat on a soft
+     panel.  It deliberately does *not* reuse the 3-D face textures: those
+     are wrap maps stretched around a sphere or a cylinder, so seen flat
+     they read as stripes and blobs rather than as the machine.  The icon
+     is drawn for this job, at the size and on the grid it was meant for. */
   function portrait(m, w, h) {
     return paint(w, h, function (ctx) {
-      var g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, Util.rgba('#ffffff', 0.1));
-      g.addColorStop(1, Util.rgba('#000000', 0.18));
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, w, h);
+      /* Left transparent on purpose: the canvas is letterboxed inside the
+         card by object-fit, so any panel painted here shows up as a slab
+         narrower than the card.  The icon sits straight on the card. */
 
-      var S = Math.min(w, h) * 0.72;
-      var ox = (w - S) / 2, oy = (h - S) / 2;
+      /* Snap the icon to a whole number of pixels per cell, then centre
+         it — a fractional cell size is exactly what turns crisp pixel art
+         back into mush.  Take the largest cell that still fits, since
+         rounding down can otherwise throw away a third of the card. */
+      var cell = Math.max(1, Math.floor(Math.min(w, h) * 0.98 / GRID));
+      var S = cell * GRID;
+      var art = icon(m, S);
 
-      ctx.save();
-      ctx.translate(ox, oy);
-
-      if (m.head === 'sphere') {
-        /* Clarus's ears sit behind the head, so they go down first. */
-        if (m.id === 'clarus') {
-          ctx.fillStyle = '#1b1b1b';
-          [-1, 1].forEach(function (side) {
-            ctx.save();
-            ctx.translate(S * (0.5 + side * 0.4), S * 0.34);
-            ctx.rotate(side * 0.5);
-            ell(ctx, 0, 0, S * 0.12, S * 0.26);
-            ctx.fill();
-            ctx.restore();
-          });
-        }
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(S / 2, S / 2, S / 2, 0, Math.PI * 2);
-        ctx.clip();
-        FACE[m.id](ctx, S);
-        ctx.restore();
-
-        if (DECAL[m.id]) DECAL[m.id](ctx, S);
-        shadeRound(ctx, S);
-
-      } else if (m.head === 'cylinder') {
-        /* a can, not a ball — otherwise the Mac Pro is unrecognisable */
-        var cw = S * 0.62, cx = (S - cw) / 2;
-        var top = S * 0.14, bot = S * 0.9, ry = cw * 0.22;
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(cx, top);
-        ctx.lineTo(cx, bot);
-        ctx.ellipse(cx + cw / 2, bot, cw / 2, ry, 0, Math.PI, 0, true);
-        ctx.lineTo(cx + cw, top);
-        ctx.ellipse(cx + cw / 2, top, cw / 2, ry, 0, 0, Math.PI, true);
-        ctx.closePath();
-        ctx.clip();
-        FACE[m.id](ctx, S);
-        ctx.restore();
-
-        /* lit throat at the top */
-        ctx.fillStyle = '#15151a';
-        ell(ctx, cx + cw / 2, top, cw / 2, ry);
-        ctx.fill();
-        var gg = ctx.createRadialGradient(cx + cw / 2, top, 1, cx + cw / 2, top, cw * 0.55);
-        gg.addColorStop(0, 'rgba(125,227,255,.95)');
-        gg.addColorStop(1, 'rgba(125,227,255,0)');
-        ctx.fillStyle = gg;
-        ell(ctx, cx + cw / 2, top, cw * 0.44, ry * 0.85);
-        ctx.fill();
-
-      } else {
-        FACE[m.id](ctx, S);
-      }
-      ctx.restore();
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(art, Math.round((w - S) / 2), Math.round((h - S) / 2));
     });
   }
 
@@ -1112,13 +1341,13 @@ var Art = (function () {
     MASCOTS: MASCOTS,
     mascot: mascot,
     face: function (m) { return paint(256, 256, function (ctx, w) { FACE[m.id](ctx, w); }); },
-    compactSide: compactSide,
+    rainbowBadge: rainbowBadge,
     titleBar: titleBar,
-    shellPanel: shellPanel,
     printerPanel: printerPanel,
     decal: function (m) { return DECAL[m.id] ? paint(256, 256, function (ctx, w) { DECAL[m.id](ctx, w); }) : null; },
     back: function (m) { return paint(256, 256, function (ctx, w) { backPanel(ctx, w, m.color, Util.mix(m.color, '#000000', 0.45)); }); },
     portrait: portrait,
+    icon: icon,
 
     asphalt: asphalt,
     roadMarkings: roadMarkings,

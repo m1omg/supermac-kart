@@ -178,7 +178,9 @@ var Game = (function () {
       card.className = 'card' + (m.id === chosenMascot ? ' sel' : '');
       card.dataset.id = m.id;
 
-      var pic = Art.portrait(m, 220, 200);
+      /* sized so the icon's cells land near 1:1 at the card's CSS height,
+         which keeps the pixel grid even instead of dropping rows */
+      var pic = Art.portrait(m, 176, 160);
       pic.style.borderRadius = '10px';
       card.appendChild(pic);
 
@@ -238,7 +240,10 @@ var Game = (function () {
     function go(id, fn) { document.getElementById(id).addEventListener('click', fn); }
 
     go('btnStart', function () {
+      /* first gesture on the page, so this is the earliest the audio
+         context is allowed to exist — and the earliest music can play */
       Sound.init(); Sound.click();
+      Sound.music('menu');
       screenTo('charScreen');
     });
     go('btnCharBack', function () { Sound.click(); screenTo('titleScreen'); });
@@ -341,6 +346,7 @@ var Game = (function () {
       lastFrame = performance.now();
       Sound.init();
       Sound.startEngine();
+      Sound.music('race', chosenTrack);
     }, 30);
   }
 
@@ -417,6 +423,7 @@ var Game = (function () {
   function quitToMenu() {
     state = 'menu';
     Sound.stopEngine();
+    Sound.music('menu');
     el.hud.classList.add('hidden');
     el.touch.classList.add('hidden');
     screenTo('titleScreen');
@@ -447,6 +454,9 @@ var Game = (function () {
       if (e.code === 'KeyM') {
         var muted = Sound.toggleMute();
         popup(muted ? 'SOUND OFF' : 'SOUND ON');
+      }
+      if (e.code === 'KeyB') {
+        popup(Sound.toggleMusic() ? 'MUSIC ON' : 'MUSIC OFF');
       }
       if (e.code === 'KeyT') {
         Art.setTextures(!Art.texturesActive());
@@ -500,9 +510,12 @@ var Game = (function () {
       pausedFrom = state;
       state = 'paused';
       Sound.stopNitro();
+      /* keep the track running under the pause menu, just quieter */
+      Sound.duck(0.4, 0.2);
       screenTo('pauseScreen');
     } else if (!on && state === 'paused') {
       state = pausedFrom;
+      Sound.duck(1, 0.2);
       hideMenu();
       /* discard the wall-clock time spent in the menu */
       lastFrame = performance.now();
@@ -757,6 +770,9 @@ var Game = (function () {
     var rpm = THREE.MathUtils.clamp(Math.abs(player.speed) / player.maxSpeed, 0, 1.3);
     Sound.updateEngine(rpm, state === 'racing' ? (keys.up || touch.active ? 0.9 : 0.4) : 0.25);
     if (player.burning) Sound.startNitro(); else Sound.stopNitro();
+    /* Nitro is the loudest thing in the mix; pull the music under it so
+       the roar reads as a surge rather than as more noise. */
+    Sound.duck(player.burning ? 0.55 : 1, 0.18);
 
     renderer.render(world.scene, camera);
     updateHUD();
@@ -1027,6 +1043,8 @@ var Game = (function () {
     screenTo('resultScreen');
     el.hud.classList.add('hidden');
     Sound.stopEngine();
+    /* the race track fades under the results rather than stopping dead */
+    Sound.music('menu');
   }
 
   /* `stats` is a read-only window onto what the renderer actually drew
